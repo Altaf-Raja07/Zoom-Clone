@@ -5,10 +5,18 @@
  *
  * So both servers are started here, and each waits for its own health signal
  * rather than for a fixed delay. `reuseExistingServer` keeps a local
- * `./scripts/dev-*.sh` session usable without a port clash — note that a reused
- * server keeps whatever settings it was already started with, so a CORS
- * allowlist that does not include the frontend origin shows up as every test
- * failing rather than as one clear error.
+ * `./scripts/dev-*.sh` session usable without a port clash — with two traps
+ * that both look like flaky tests rather than like the environment:
+ *
+ * - A reused server keeps whatever settings it was already started with, so a
+ *   CORS allowlist that does not include the frontend origin shows up as every
+ *   test failing rather than as one clear error.
+ * - A reused *frontend* can also be a stale or wedged one. A `next dev` left
+ *   running for hours across many edits eventually answers every route with a
+ *   500, and the health probe still passes, so the run borrows it and fails one
+ *   unrelated test at a time. Before believing a flake, check
+ *   `curl -o /dev/null -w '%{http_code}' http://localhost:3100/` — and if it is
+ *   not 200, restart the dev server rather than the test.
  */
 
 import { defineConfig, devices } from "@playwright/test";
