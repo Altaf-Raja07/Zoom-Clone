@@ -31,6 +31,10 @@ export function Dashboard() {
   const [session, setSession] = useState<Session | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  // Whether the session request is still in flight — not whether it succeeded.
+  // The actions wait on the request, not on its answer, because the answer is
+  // the identity and by then it is too late to need it.
+  const [sessionPending, setSessionPending] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,6 +50,9 @@ export function Dashboard() {
             ? "We could not reach the server. Please try again."
             : "Something went wrong loading your session.",
         );
+      })
+      .finally(() => {
+        if (!cancelled) setSessionPending(false);
       });
 
     return () => {
@@ -133,7 +140,17 @@ export function Dashboard() {
             <button
               key={action.key}
               type="button"
-              disabled={starting && action.key === "new"}
+              // Disabled until the visitor is known. A first visit has no
+              // identity cookie, and the API mints a new User for *any* request
+              // that arrives without one — so clicking before the session has
+              // landed puts two cookie-less requests in flight at once, the
+              // second User becomes the host of the meeting being created, and
+              // whichever cookie the browser stores last wins. The loser is the
+              // person who pressed the button, who then sees their own meeting
+              // as somebody else's. Nothing server-side can tell those two
+              // requests apart; the only place that can stop them racing is
+              // here, by not acting until we know who is asking.
+              disabled={sessionPending || (starting && action.key === "new")}
               className={
                 action.key === "new"
                   ? `${styles.actionButton} ${styles.actionPrimary}`

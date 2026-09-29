@@ -28,6 +28,7 @@ import {
   Meeting,
   absoluteInviteLink,
   explainApiError,
+  getSession,
   scheduleMeeting,
 } from "@/lib/api";
 
@@ -133,16 +134,40 @@ function BookingForm({ onScheduled }: { onScheduled: (meeting: Meeting) => void 
   const [duration, setDuration] = useState("30");
   const [error, setError] = useState<string | null>(null);
   const [booking, setBooking] = useState(false);
+  // Whether the session request is still in flight. Booked from a cold browser
+  // this form used to be the very first thing to talk to the API, which meant
+  // booking a Meeting under whichever User the request minted — and, if the
+  // dashboard was open in another tab, a second one racing it. Same rule as the
+  // dashboard: do not act until we know who is asking.
+  const [sessionPending, setSessionPending] = useState(true);
 
   // Filled in after the first paint rather than in the initial state. The server
   // rendered this component too, on a different clock, and an input whose value
   // differs between the two renders is a hydration mismatch.
   useEffect(() => {
-    setStart((current) => (current.date || current.time ? current : nextHalfHour(new Date())));
+    setStart(
+      (current) => (current.date || current.time ? current : nextHalfHour(new Date())),
+    );
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    // A failure clears the gate too: the booking request would fail the same
+    // way, and its own error is the one worth putting on the page. Waiting for
+    // a success that is not coming would leave a button disabled for ever with
+    // nothing to explain why.
+    getSession()
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setSessionPending(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const startsAt = startInstant(start);
-  const canBook = startsAt !== null && !booking;
+  const canBook = startsAt !== null && !booking && !sessionPending;
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -269,7 +294,13 @@ function BookingForm({ onScheduled }: { onScheduled: (meeting: Meeting) => void 
           disabled={!canBook}
           data-testid="schedule-submit"
         >
-          {booking ? "Scheduling…" : "Schedule"}
+          {/* Says why it is disabled rather than sitting there inert: the join
+              screen does the same for a half-typed Meeting ID. */}
+          {booking
+            ? "Scheduling…"
+            : sessionPending
+              ? "Getting your session…"
+              : "Schedule"}
         </button>
       </form>
     </>
