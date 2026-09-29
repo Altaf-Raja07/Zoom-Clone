@@ -17,10 +17,15 @@ import { ApiError, Meeting, absoluteInviteLink, getMeeting } from "@/lib/api";
 import styles from "./Room.module.css";
 
 type Props = {
-  meetingId: string;
+  /**
+   * The Meeting's internal id, not its Meeting ID. Both are called a "meeting
+   * id" in Zoom's own UI, which is why the code is stored in `join_code` — so
+   * the prop is named for what it carries rather than for what it resembles.
+   */
+  meetingUuid: string;
 };
 
-export function Room({ meetingId }: Props) {
+export function Room({ meetingUuid }: Props) {
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -29,7 +34,7 @@ export function Room({ meetingId }: Props) {
   useEffect(() => {
     let cancelled = false;
 
-    getMeeting(meetingId)
+    getMeeting(meetingUuid)
       .then((loaded) => {
         if (!cancelled) setMeeting(loaded);
       })
@@ -45,7 +50,7 @@ export function Room({ meetingId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [meetingId]);
+  }, [meetingUuid]);
 
   async function copyInviteLink() {
     if (!meeting) return;
@@ -90,7 +95,15 @@ export function Room({ meetingId }: Props) {
           </span>
           Meetly
         </div>
-        <span className={styles.role}>Host</span>
+        {meeting.is_host ? (
+          <span className={styles.hostBadge} data-testid="host-badge">
+            Host
+          </span>
+        ) : (
+          <span className={styles.hostBadge} data-testid="host-badge">
+            Hosted by {meeting.host.display_name}
+          </span>
+        )}
       </header>
 
       <main className={styles.main}>

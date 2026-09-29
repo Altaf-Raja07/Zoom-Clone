@@ -15,10 +15,12 @@ import secrets
 
 JOIN_CODE_DIGITS = 11
 
-# How the digits are grouped for a human, in the order Zoom groups them. Stored
-# as a list rather than a format string so the storage/display split is
-# arithmetic rather than string surgery that could drop a leading zero.
+# How the digits are grouped for a human, in the order Zoom groups them: three,
+# four, four. Stored as a list rather than a format string so the storage/display
+# split is arithmetic rather than string surgery that could drop a leading zero,
+# and so the length is not stated twice and left to drift.
 _GROUPS = (3, 4, 4)
+assert sum(_GROUPS) == JOIN_CODE_DIGITS, "the grouping must spell out the length"
 
 
 def generate_join_code() -> str:

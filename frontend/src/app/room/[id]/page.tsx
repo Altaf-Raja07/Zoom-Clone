@@ -13,5 +13,5 @@ export default async function RoomPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  return <Room meetingId={id} />;
+  return <Room meetingUuid={id} />;
 }

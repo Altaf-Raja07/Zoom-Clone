@@ -20,7 +20,7 @@ from ..db import get_session
 from ..deps import current_user, join_code_source
 from ..join_codes import format_join_code
 from ..models import Meeting, User
-from ..repository import create_instant_meeting, get_meeting
+from ..repository import JoinCodeUnavailable, create_instant_meeting, get_host, get_meeting
 
 router = APIRouter(tags=["meetings"])
 
@@ -62,7 +62,7 @@ def _iso(value: datetime | None) -> str | None:
 
 
 def to_view(meeting: Meeting, session: Session, viewer: User) -> MeetingView:
-    host = session.get(User, meeting.host_id)
+    host = get_host(session, meeting)
     return MeetingView(
         id=meeting.id,
         meeting_id=format_join_code(meeting.join_code),
@@ -92,7 +92,12 @@ def create_meeting(
     else — there is no role column that could later disagree with it
     (ADR-0004).
     """
-    meeting = create_instant_meeting(session, user, code_source)
+    try:
+        meeting = create_instant_meeting(session, user, code_source)
+    except JoinCodeUnavailable as exhausted:
+        # Ten draws from a hundred billion codes. The right answer is to say the
+        # service is busy rather than to hand back a 500 that reads as a crash.
+        raise HTTPException(status_code=503, detail=str(exhausted)) from exhausted
     return to_view(meeting, session, user)
 
 

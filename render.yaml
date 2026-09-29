@@ -22,8 +22,8 @@ services:
     healthCheckPath: /api/health
     # A persistent disk is what makes the guest cookie survive a redeploy rather
     # than just a restart. Render does not offer disks on the free plan, so on
-    # free this is commented out and the SQLite file is ephemeral — see the
-    # deployment notes before choosing.
+    # free this is commented out and the database path below points inside the
+    # build directory instead — see the note there.
     # disk:
     #   name: meetly-data
     #   mountPath: /var/data
@@ -32,9 +32,16 @@ services:
       - key: PYTHON_VERSION
         value: "3.12.11"
       - key: MEETLY_DATABASE_PATH
-        # Must be the disk's mount point, not the repository, or the file is
-        # lost on every deploy.
-        value: /var/data/meetly.sqlite3
+        # Relative to backend/, where startCommand runs. Deliberately writable:
+        # the application creates the directory itself, and on the free plan
+        # there is nowhere better to put it.
+        #
+        # When you uncomment the disk: block above and move to a paid plan,
+        # change this to /var/data/meetly.sqlite3 — the mount path — or the
+        # file will be lost on every deploy. Nothing else in the application
+        # changes between the two cases, which is why the path is configuration
+        # at all.
+        value: data/meetly.sqlite3
       # Render generates and keeps this. It signs the guest cookie, so losing
       # it costs every visitor their identity — and it must not be the built-in
       # placeholder, which the application refuses to serve a real origin with.

@@ -72,17 +72,37 @@ deployment needs a Render account.
   service running `next start`. ADR-0002 carries the correction, and so does
   `docs/deploying-to-render.md`.
 
-## What is not done here
+## Not done here
 
 - **The deployment is written but not performed.** It needs a Render account,
   and the last checkbox stays open until someone applies `render.yaml` and runs
   the checks in `docs/deploying-to-render.md`. Before that is worth doing,
   know that **the free plan has no persistent disk**: the SQLite file survives a
   restart but not a redeploy, so a free deployment loses everyone's identity
-  whenever the backend is redeployed. `render.yaml` points the database at the
-  disk's mount point so that uncommenting the `disk:` block and moving to the
-  Starter plan is the only change needed.
+  whenever the backend is redeployed. `render.yaml` points the database inside
+  the build directory on free and at the disk's mount point on a paid plan, so
+  the switch is one line and no application code differs between the two.
 - **No `/join/[code]` route exists yet.** The Invite Link points at one, and
   following it today 404s. That route is ticket 03.
 - **The room is not a room.** No participants, no WebSocket, no stage, no
   controls — tickets 06 to 10.
+
+## What the review changed
+
+`/code-review` ran both axes against the ticket. Fixed: the room's props called
+the Meeting's internal id `meetingId`, which is the name the domain gives to
+something else; the room badge said "Host" to everyone, including a guest who
+followed the link; a scheme-less CORS entry was forced to `https`, which would
+have broken `localhost:3000` written without a scheme — it now infers per
+entry, with a test each way; an exhausted Meeting ID raised an unhandled 500
+rather than a 503; a non-join-code integrity error would have been retried ten
+times and then reported as a code shortage; `render.yaml` pointed the database
+at a disk path that does not exist on the free plan, so the service would have
+died on `mkdir`; ADR-0002 still claimed a static frontend in its own first
+paragraph; and one test asserted on settings rather than over HTTP, which is
+the seam this repo keeps.
+
+Left alone, deliberately: the navbar styles are duplicated between the dashboard
+and the room. They will be unified when the dashboard ticket introduces the
+chrome they share, and a shared component now would be built for two callers
+and then rewritten for the third.

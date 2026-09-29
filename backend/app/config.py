@@ -82,10 +82,14 @@ def _with_scheme(origin: str) -> str:
     Deploy platforms hand out a host (`meetly-web.onrender.com`), not an origin,
     and an allowlist entry without a scheme matches nothing — so CORS would
     refuse every request from the real frontend while localhost kept working
-    fine. Assuming https is the only safe guess: a scheme-less entry is never a
-    development origin, and nothing is served over plain http in a deployment.
+    fine. Assuming https is the right guess for anything deployed, and http for
+    anything on this machine: a scheme-less local entry is a developer's typo, and
+    "fixing" it to https would break the one environment that works.
     """
-    return origin if "://" in origin else f"https://{origin}"
+    if "://" in origin:
+        return origin
+    scheme = "http" if _is_local_origin(origin) else "https"
+    return f"{scheme}://{origin}"
 
 
 def _is_local_origin(origin: str) -> bool:

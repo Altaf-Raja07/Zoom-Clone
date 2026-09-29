@@ -1,11 +1,12 @@
-# Deploy to Render: single Web Service with a mounted disk
+# Deploy to Render: a single-instance backend with a mounted disk
 
-The frontend is a static Next.js build and the backend is a single FastAPI Web
-Service with a mounted persistent disk holding the SQLite file. Not Vercel: its
-serverless functions cannot hold a long-lived WebSocket connection or a
-writable disk, which would break both the realtime hub and cookie-backed
-identity. Not Docker Compose on a VPS, because provisioning a box is time we
-don't have.
+The backend is a single FastAPI Web Service holding the SQLite file, on a mounted
+disk where the plan has one. The frontend is a second Web Service running
+`next start`; it is not a static build, and the correction is recorded at the
+bottom. Not Vercel: its serverless functions cannot hold a long-lived WebSocket
+connection or a writable disk, which would break both the realtime hub and
+cookie-backed identity. Not Docker Compose on a VPS, because provisioning a box
+is time we don't have.
 
 **Why:** Render accepts a single instance by default, which is exactly what an
 in-process broadcast hub requires, and a mounted disk means the SQLite file
@@ -30,17 +31,17 @@ better product but needs a card and is the least documented of the three.
 - **Free tier has no persistent disk.** A mounted disk is a paid-plan feature,
   so on the free plan the SQLite file lives on the instance's ephemeral
   filesystem: a *restart* keeps it, a *redeploy* loses it, and every visitor
-  comes back as a new guest. `MEETLY_DATABASE_PATH` in `render.yaml` points at
-  the disk's mount point precisely so that uncommenting the `disk:` block and
-  moving to the Starter plan is the whole of the fix — no application code
-  differs between the two cases. See `docs/deploying-to-render.md`.
+  comes back as a new guest. `MEETLY_DATABASE_PATH` in `render.yaml` points
+  inside the build directory for the free plan and at the disk's mount point for
+  the paid one, so moving between them is a one-line change and no application
+  code differs between the two cases. See `docs/deploying-to-render.md`.
 
 ## Correction, ticket 02
 
-This ADR originally said the frontend is a *static* Next.js build. It is not,
-and cannot be: the room is `/room/<meeting id>`, a dynamic route whose ids are
-minted at runtime, so there is no enumerable set of pages to export ahead of
-time. The frontend is therefore a second Render web service running
-`next start`. Two services rather than one, because the browser talks to
-FastAPI directly (SPEC.md, Network topology) and so the API cannot also be the
-origin a browser loads the app from.
+The original text of this ADR said the frontend is a *static* Next.js build. It
+is not, and cannot be: the room is `/room/<meeting id>`, a dynamic route whose
+ids are minted at runtime, so there is no enumerable set of pages to export
+ahead of time. The frontend is therefore a second Render web service running
+`next start`. Two services rather than one, because the browser talks to FastAPI
+directly (SPEC.md, Network topology) and so the API cannot also be the origin a
+browser loads the app from.

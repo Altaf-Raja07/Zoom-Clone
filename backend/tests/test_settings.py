@@ -77,7 +77,9 @@ def test_the_placeholder_secret_is_accepted_for_local_development(
     assert TestClient(app).get("/api/health").status_code == 200
 
 
-def test_a_bare_hostname_in_the_allowlist_is_read_as_an_https_origin(database_path, tmp_path):
+def test_a_bare_hostname_in_the_allowlist_is_read_as_an_https_origin(
+    database_path, tmp_path
+):
     """A host with no scheme, which is what a deploy platform hands you.
 
     Refusing to guess here would not fail at deploy time; it would fail as every
@@ -85,10 +87,6 @@ def test_a_bare_hostname_in_the_allowlist_is_read_as_an_https_origin(database_pa
     looks exactly like identity being broken.
     """
     app = application_serving("a-real-private-value", "meetly-web.onrender.com", tmp_path / "c")
-
-    from app.config import get_settings
-
-    assert get_settings().cors_origins == ["https://meetly-web.onrender.com"]
 
     with TestClient(app) as client:
         preflight = client.options(
@@ -102,3 +100,23 @@ def test_a_bare_hostname_in_the_allowlist_is_read_as_an_https_origin(database_pa
     assert preflight.headers["access-control-allow-origin"] == (
         "https://meetly-web.onrender.com"
     )
+
+
+def test_a_bare_localhost_in_the_allowlist_is_read_as_http(database_path, tmp_path):
+    """The other half of the guess: local development is served over plain http.
+
+    Guessing https here would break the one environment that works today, and
+    would do it by refusing the developer's own requests.
+    """
+    app = application_serving("a-real-private-value", "localhost:3000", tmp_path / "d")
+
+    with TestClient(app) as client:
+        preflight = client.options(
+            "/api/session",
+            headers={
+                "Origin": "http://localhost:3000",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+
+    assert preflight.headers["access-control-allow-origin"] == "http://localhost:3000"

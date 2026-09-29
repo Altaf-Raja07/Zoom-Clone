@@ -35,12 +35,12 @@ service's ephemeral filesystem, so:
   and the file with it. Everyone becomes a new guest, and every meeting
   disappears.
 
-That is survivable for a demo, and it is the reason `MEETLY_DATABASE_PATH` is
-set to the disk's mount path in the blueprint rather than somewhere inside the
-repository. If the deployment is meant to keep its data, uncomment the `disk:`
-block, choose the **Starter** plan ($7/month, needs a card) and redeploy. The
-application code does not change either way — that is the point of putting the
-path in configuration.
+That is survivable for a demo. `MEETLY_DATABASE_PATH` is set to a path inside
+the build directory for exactly this case, and to the disk's mount point once
+you have one, so switching is a one-line change to `render.yaml` and no change
+to the application at all. To keep data across deploys, uncomment the `disk:`
+block, choose the **Starter** plan ($7/month, needs a card), and set
+`MEETLY_DATABASE_PATH=/var/data/meetly.sqlite3`.
 
 ## 3. Point each service at the other
 

@@ -13,7 +13,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .identity import new_display_name
-from .join_codes import generate_join_code
 from .models import Meeting, Participant, User
 
 # How many Meeting IDs to try before giving up. Eleven digits is a big space, so
@@ -38,7 +37,7 @@ def create_user(session: Session, display_name: str | None = None) -> User:
 def create_instant_meeting(
     session: Session,
     host: User,
-    code_source: Callable[[], str] = generate_join_code,
+    code_source: Callable[[], str],
 ) -> Meeting:
     """A Meeting with no title and no start time, and a Meeting ID nobody has.
 
@@ -53,6 +52,9 @@ def create_instant_meeting(
     `IntegrityError` arm is not belt-and-braces: two hosts creating at the same
     moment both pass the "is it taken?" check, and only the database can settle
     which of them wins.
+
+    `code_source` is required rather than defaulted, so that where a Meeting ID
+    comes from is a decision the caller makes and states, not a hidden fallback.
     """
     for _ in range(JOIN_CODE_ATTEMPTS):
         join_code = code_source()
@@ -65,6 +67,13 @@ def create_instant_meeting(
             session.commit()
         except IntegrityError:
             session.rollback()
+            # A unique violation on the join code means someone else took it
+            # between the check above and this insert — try again. Any other
+            # integrity error (a host that no longer exists, say) would fail
+            # identically on all ten attempts, so it is raised now rather than
+            # reported as "could not find a free Meeting ID".
+            if get_meeting_by_join_code(session, join_code) is None:
+                raise
             continue
         return meeting
 
@@ -87,6 +96,15 @@ def update_display_name(session: Session, user: User, display_name: str) -> User
 
 def get_meeting(session: Session, meeting_id: str) -> Meeting | None:
     return session.get(Meeting, meeting_id)
+
+
+def get_host(session: Session, meeting: Meeting) -> User | None:
+    """The User who created a Meeting.
+
+    Authority is read from the meeting rather than from a participant row,
+    because there is no `role` column to disagree with it (ADR-0004).
+    """
+    return session.get(User, meeting.host_id)
 
 
 def get_meeting_by_join_code(session: Session, join_code: str) -> Meeting | None:

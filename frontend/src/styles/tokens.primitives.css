@@ -60,6 +60,11 @@
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
 
+  /* Letter spacing. */
+  --letter-spacing-tight: -0.01em;
+  --letter-spacing-wide: 0.04em;
+  --letter-spacing-widest: 0.08em;
+
   /* Radii. */
   --radius-sm: 4px;
   --radius-md: 8px;
@@ -78,6 +83,9 @@
   --size-avatar-md: 2.5rem;
   --size-avatar-lg: 4rem;
   --size-content-max: 72rem;
+  /* Narrower than the page: a card of text does not get wider because the
+     window does. */
+  --size-card-max: 36rem;
 
   /* Motion. */
   --duration-fast: 120ms;

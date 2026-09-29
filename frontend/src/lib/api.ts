@@ -67,8 +67,8 @@ export function createMeeting(): Promise<Meeting> {
   return apiFetch<Meeting>("/api/meetings", { method: "POST" });
 }
 
-export function getMeeting(meetingId: string): Promise<Meeting> {
-  return apiFetch<Meeting>(`/api/meetings/${meetingId}`);
+export function getMeeting(meetingUuid: string): Promise<Meeting> {
+  return apiFetch<Meeting>(`/api/meetings/${meetingUuid}`);
 }
 
 /**
