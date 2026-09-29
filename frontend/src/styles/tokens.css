@@ -1,0 +1,9 @@
+/**
+ * The token layer, in import order: primitives first, then semantics.
+ *
+ * `globals.css` imports this file and nothing else does, so the three-layer
+ * system has exactly one entry point.
+ */
+
+@import "./tokens.primitives.css";
+@import "./tokens.semantic.css";

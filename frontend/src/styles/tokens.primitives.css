@@ -1,0 +1,91 @@
+/**
+ * Design tokens, layer 1 of 3: primitives.
+ *
+ * These are the raw values — a palette, spacing steps, type sizes, radii.
+ * Nothing in this file is referenced by a component: components use the
+ * semantic layer, which names a *role* rather than a value. Correcting the
+ * palette later must be a one-file change, and that only holds if components
+ * never reach past the semantic layer into these.
+ *
+ * The palette is APPROXIMATED from screenshots, not measured. No CSS value was
+ * read from a live Zoom surface, so none of these may be described as Zoom's
+ * actual colour. See docs/zoom-reference-notes.md.
+ */
+
+:root {
+  /* Palette — approximated, see the note above. */
+  --palette-blue-600: #2d8cff;
+  --palette-blue-700: #1f6fd6;
+  --palette-blue-100: #d6e9ff;
+  --palette-slate-0: #ffffff;
+  --palette-slate-50: #f7f8fa;
+  --palette-slate-100: #eef0f4;
+  --palette-slate-200: #dfe3ea;
+  --palette-slate-400: #9aa3b2;
+  --palette-slate-500: #6b7484;
+  --palette-slate-700: #3d4553;
+  --palette-slate-900: #1b1f27;
+  --palette-slate-950: #0d0f14;
+  --palette-red-600: #e0453c;
+  --palette-red-700: #c3352d;
+  --palette-green-600: #2ea043;
+  --palette-amber-500: #f0a92e;
+  --palette-white-alpha-08: rgba(255, 255, 255, 0.08);
+  --palette-white-alpha-16: rgba(255, 255, 255, 0.16);
+  --palette-white-alpha-64: rgba(255, 255, 255, 0.64);
+
+  /* Spacing — a 4px scale. */
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+
+  /* Typography. */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-md: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.375rem;
+  --font-size-2xl: 1.75rem;
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  /* Radii. */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+
+  /* Elevation. */
+  --shadow-sm: 0 1px 2px rgba(16, 20, 28, 0.08);
+  --shadow-md: 0 4px 12px rgba(16, 20, 28, 0.1);
+  --shadow-lg: 0 12px 32px rgba(16, 20, 28, 0.16);
+
+  /* Sizing. */
+  --size-navbar-height: 4rem;
+  --size-control-height: 2.5rem;
+  --size-avatar-sm: 2rem;
+  --size-avatar-md: 2.5rem;
+  --size-avatar-lg: 4rem;
+  --size-content-max: 72rem;
+
+  /* Motion. */
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0.2, 1);
+
+  /* Layout. The breakpoints are defined once and used app-wide; the media
+     queries below are the only place a breakpoint value appears. */
+  --breakpoint-tablet: 48rem;
+  --breakpoint-narrow: 30rem;
+}

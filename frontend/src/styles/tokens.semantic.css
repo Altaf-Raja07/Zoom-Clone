@@ -1,0 +1,64 @@
+/**
+ * Design tokens, layer 2 of 3: semantic.
+ *
+ * Each token names a *role* — page background, card surface, primary action —
+ * and resolves to a primitive from layer 1. Components reference only these.
+ * That indirection is the entire point: swapping the palette means editing
+ * `tokens.primitives.css` alone, because no component ever names a colour.
+ *
+ * The palette is APPROXIMATED from screenshots, not measured. See
+ * docs/zoom-reference-notes.md.
+ */
+
+:root {
+  /* Surfaces. */
+  --surface-page: var(--palette-slate-50);
+  --surface-navbar: var(--palette-slate-0);
+  --surface-card: var(--palette-slate-0);
+  --surface-card-raised: var(--palette-slate-0);
+  --surface-input: var(--palette-slate-0);
+  --surface-subtle: var(--palette-slate-100);
+  --surface-meeting-stage: var(--palette-slate-950);
+  --surface-toolbar: var(--palette-slate-900);
+  --surface-panel: var(--palette-slate-900);
+  --surface-hover: var(--palette-slate-100);
+
+  /* Text roles. */
+  --text-primary: var(--palette-slate-900);
+  --text-secondary: var(--palette-slate-500);
+  --text-inverse: var(--palette-slate-0);
+  --text-on-dark-primary: var(--palette-slate-0);
+  --text-on-dark-secondary: var(--palette-white-alpha-64);
+  --text-link: var(--palette-blue-700);
+  --text-accent: var(--palette-blue-600);
+
+  /* Actions. */
+  --action-primary-bg: var(--palette-blue-600);
+  --action-primary-bg-hover: var(--palette-blue-700);
+  --action-primary-text: var(--text-inverse);
+  --action-secondary-bg: var(--palette-slate-0);
+  --action-secondary-bg-hover: var(--palette-slate-100);
+  --action-secondary-text: var(--text-primary);
+  --action-secondary-border: var(--palette-slate-200);
+  --action-destructive-bg: var(--palette-red-600);
+  --action-destructive-bg-hover: var(--palette-red-700);
+  --action-destructive-text: var(--text-inverse);
+  --action-disabled-bg: var(--palette-slate-200);
+  --action-disabled-text: var(--palette-slate-400);
+
+  /* Lines. */
+  --border-subtle: var(--palette-slate-200);
+  --border-strong: var(--palette-slate-400);
+  --border-on-dark: var(--palette-white-alpha-16);
+
+  /* Status. */
+  --status-muted-bg: var(--palette-slate-100);
+  --status-muted-fg: var(--palette-slate-700);
+  --status-live-bg: var(--palette-green-600);
+  --status-live-fg: var(--text-inverse);
+  --status-warning-fg: var(--palette-amber-500);
+  --status-error-fg: var(--palette-red-600);
+
+  /* Focus. */
+  --focus-ring: var(--palette-blue-600);
+}

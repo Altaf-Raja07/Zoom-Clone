@@ -1,0 +1,27 @@
+{
+  "name": "meetly-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Meetly — a Zoom-style conferencing frontend. Next.js, CSS Modules, design tokens.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "lint:tokens": "node scripts/check-token-layers.mjs",
+    "check": "npm run typecheck && npm run lint:tokens",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "next": "^15.5.26",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^26.6.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "typescript": "^5.7.2"
+  }
+}
