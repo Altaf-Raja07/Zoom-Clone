@@ -9,6 +9,7 @@ a real browser does, so a "returning visitor" is simply the same session
 making a second request.
 """
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -22,9 +23,10 @@ ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
 # Imported at module scope so the process-wide settings and engine can be reset
 # between tests without each test reaching into `app` itself.
 from app.config import reset_settings  # noqa: E402
-from app.db import reset_engine  # noqa: E402
+from app.db import database_session, reset_engine  # noqa: E402
 from app.join_codes import generate_join_code  # noqa: E402
 from app.main import create_app  # noqa: E402
+from app.repository import get_meeting_by_join_code  # noqa: E402
 
 
 def migrate_to_head() -> None:
@@ -46,8 +48,11 @@ class Session:
     def get(self, url: str):
         return self._client.get(url)
 
-    def post(self, url: str):
-        return self._client.post(url)
+    def post(self, url: str, **kwargs):
+        return self._client.post(url, **kwargs)
+
+    def patch(self, url: str, **kwargs):
+        return self._client.patch(url, **kwargs)
 
     def set_cookie(self, name: str, value: str) -> None:
         """Plant a cookie, as a browser would when the server sets one."""
@@ -114,6 +119,27 @@ def another_visitor(app):
     session = Session(app)
     yield session
     session.close()
+
+
+@pytest.fixture()
+def end_meeting(app):
+    """Stamp a Meeting as ended, for a fixture that needs a world the API cannot
+    yet produce.
+
+    Ending a Meeting is its own ticket, so there is no endpoint for it and no
+    seam-true way to reach this state over HTTP. This reaches below the API to
+    *arrange* it — the assertions that follow are still HTTP responses, which is
+    the part that would be worth nothing if it were faked.
+    """
+
+    def end(join_code: str) -> None:
+        with database_session() as session:
+            meeting = get_meeting_by_join_code(session, join_code)
+            assert meeting is not None, "end_meeting was given a code that matches nothing"
+            meeting.ended_at = datetime.now(UTC)
+            session.commit()
+
+    return end
 
 
 @pytest.fixture()

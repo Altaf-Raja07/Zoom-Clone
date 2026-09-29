@@ -1,7 +1,9 @@
 """Creating a Meeting, and looking one up.
 
-Two endpoints, and the second exists because the frontend needs to render a room
-it was navigated to — so a reload is a `GET`, not a re-create.
+Three endpoints, and the second exists because the frontend needs to render a
+room it was navigated to — so a reload is a `GET`, not a re-create. The third is
+the other way in: the Meeting an Invite Link or a typed Meeting ID points at,
+which is what makes the two-identifier design worth its cost.
 
 A room is addressed by the Meeting's internal id, not by its Meeting ID. The
 public code is for humans sharing it out loud, and making the two
@@ -18,9 +20,16 @@ from sqlalchemy.orm import Session
 
 from ..db import get_session
 from ..deps import current_user, join_code_source
-from ..join_codes import format_join_code
+from ..join_codes import format_join_code, read_join_code
 from ..models import Meeting, User
-from ..repository import JoinCodeUnavailable, create_instant_meeting, get_host, get_meeting
+from ..repository import (
+    JoinCodeUnavailable,
+    create_instant_meeting,
+    get_host,
+    get_meeting,
+    get_meeting_by_join_code,
+    has_ended,
+)
 
 router = APIRouter(tags=["meetings"])
 
@@ -98,6 +107,47 @@ def create_meeting(
         # Ten draws from a hundred billion codes. The right answer is to say the
         # service is busy rather than to hand back a 500 that reads as a crash.
         raise HTTPException(status_code=503, detail=str(exhausted)) from exhausted
+    return to_view(meeting, session, user)
+
+
+@router.get("/meetings/by-code/{join_code}", response_model=MeetingView)
+def read_meeting_by_join_code(
+    join_code: str,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> MeetingView:
+    """The Meeting an Invite Link or a typed Meeting ID points at.
+
+    The second way in, and the one that earns the two-identifier design: a link
+    and a spoken code resolve here to the same Meeting, and neither of them is
+    the primary key.
+
+    Three different refusals, kept distinct because they mean three different
+    things to the person on the other end:
+
+    - malformed (400) — what they typed is not a Meeting ID at all. Checked
+      before the lookup, so a stray letter is never reported as a Meeting that
+      does not exist.
+    - no such Meeting (404) — a well-formed ID that nobody has.
+    - already ended (410) — the Meeting was real, and its host finished it.
+      Collapsing this into the 404 would tell someone their host was never there,
+      which is the one thing that did not happen.
+    """
+    bare_code = read_join_code(join_code)
+    if bare_code is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "That is not a Meeting ID. A Meeting ID is eleven digits, "
+                "grouped like 123 456 789 01."
+            ),
+        )
+
+    meeting = get_meeting_by_join_code(session, bare_code)
+    if meeting is None:
+        raise HTTPException(status_code=404, detail="No meeting has that Meeting ID.")
+    if has_ended(meeting):
+        raise HTTPException(status_code=410, detail="That meeting has already ended.")
     return to_view(meeting, session, user)
 
 

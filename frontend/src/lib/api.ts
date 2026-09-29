@@ -72,6 +72,45 @@ export function getMeeting(meetingUuid: string): Promise<Meeting> {
 }
 
 /**
+ * The Meeting an Invite Link or a typed Meeting ID points at.
+ *
+ * The other way in, and the reason the Meeting has a second identifier. The code
+ * is interpolated encoded because a person who followed a badly-formed link can
+ * put almost anything in that segment, and a `/` in it would otherwise change
+ * which endpoint is being called.
+ */
+export function getMeetingByJoinCode(joinCode: string): Promise<Meeting> {
+  return apiFetch<Meeting>(`/api/meetings/by-code/${encodeURIComponent(joinCode)}`);
+}
+
+/**
+ * Confirm the Display Name.
+ *
+ * The resolved value is returned rather than assumed, because the stored name is
+ * trimmed and truncated — so echoing the browser's own text back could show a
+ * different name from the one everyone else sees.
+ */
+export function updateDisplayName(displayName: string): Promise<Session> {
+  return apiFetch<Session>("/api/session", {
+    method: "PATCH",
+    body: JSON.stringify({ display_name: displayName }),
+  });
+}
+
+/**
+ * Whether a typed value could be a Meeting ID, for disabling the Join control.
+ *
+ * A copy of the backend's rule, and deliberately only that: it decides whether
+ * to offer the button, while the API decides whether to answer. The grouping
+ * spaces are forgiven, because a host reads the code out loud and the person
+ * listening types it with the spaces in.
+ */
+export function isJoinCodeShape(typed: string): boolean {
+  const bare = typed.replace(/\s+/g, "");
+  return /^\d{11}$/.test(bare);
+}
+
+/**
  * The Invite Link as an absolute URL.
  *
  * The API returns a path rather than a full URL: it does not know the address

@@ -111,6 +111,16 @@ def get_meeting_by_join_code(session: Session, join_code: str) -> Meeting | None
     return session.scalar(select(Meeting).where(Meeting.join_code == join_code))
 
 
+def has_ended(meeting: Meeting) -> bool:
+    """Whether a Meeting has finished.
+
+    Read from the Meeting's own `ended_at`, because that column is the only
+    record of it — there is no `kind` or status column that could disagree
+    (ADR-0004). Derived rather than stored so the answer cannot go stale.
+    """
+    return meeting.ended_at is not None
+
+
 def is_host(meeting: Meeting, user_id: str) -> bool:
     """Authority is derived from the meeting, never from a stored role."""
     return meeting.host_id == user_id

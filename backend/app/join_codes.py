@@ -35,6 +35,27 @@ def generate_join_code() -> str:
     return "".join(str(secrets.randbelow(10)) for _ in range(JOIN_CODE_DIGITS))
 
 
+def read_join_code(typed: str) -> str | None:
+    """What someone typed, as the stored code — or None if it cannot be one.
+
+    A host reads `123 456 789 01` aloud and the person listening types what they
+    heard, so the grouping spaces are forgiven. Nothing else is: a code is eleven
+    digits and nothing else, and a hyphenated or letter-containing string is not
+    a code that merely failed to match one.
+
+    Returning None rather than raising is what lets the caller refuse the entry
+    *before* the lookup, so a mistyped code is reported as malformed instead of
+    as a Meeting that does not exist.
+    """
+    bare = "".join(typed.split())
+    # `isascii()` as well as `isdigit()`: the second alone accepts superscript
+    # and other Unicode digit forms, which are eleven characters long and still
+    # not eleven digits.
+    if len(bare) != JOIN_CODE_DIGITS or not (bare.isascii() and bare.isdigit()):
+        return None
+    return bare
+
+
 def format_join_code(join_code: str) -> str:
     """`12345678901` as `123 456 789 01` — how a host reads it out.
 
