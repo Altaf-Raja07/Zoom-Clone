@@ -75,46 +75,128 @@ test("two browsers get two different identities", async ({ browser }) => {
   await secondContext.close();
 });
 
-test("a first visit mints one User, not one per request", async ({ page }) => {
-  // The dashboard makes three requests of its own — the session, then the two
-  // sections — and a first visit has no cookie. Every one of those requests
-  // depends on `current_user`, which mints a *new* User for anything arriving
-  // without a cookie, so three cookie-less requests are three Users and the
-  // browser keeps whichever cookie landed last.
+test("a first visit's later requests all carry the cookie the first one set", async ({
+  browser,
+}) => {
+  // The dashboard makes several requests of its own — the session, then the two
+  // sections, then the Demo Identity probe — and a first visit has none of them
+  // carrying a cookie. Every one depends on `current_user`, which mints a *new*
+  // User for anything arriving without a cookie, so requests racing on a cold
+  // browser are several Users and the browser keeps whichever cookie landed last.
   //
-  // The visible symptom is a returning visitor greeted by a different name: the
-  // greeting came from one request and the cookie that survived was another's.
-  // So this counts Users rather than checking a name, which would only catch the
-  // case where the losing request happened to be the one that answered.
-  await page.goto("/");
-  await expect(page.getByTestId("greeting")).toBeVisible();
-  // Every section has resolved, so every request the dashboard makes has landed.
-  await page.getByTestId("upcoming-empty").waitFor();
-  await page.getByTestId("recent-empty").waitFor();
+  // What is asserted is the *cause*, not the symptom: once the session request has
+  // gone out, every subsequent request must carry a cookie. A name on screen
+  // cannot show this — the greeting is rendered from whichever request answered,
+  // which is not necessarily the one whose cookie survived, so a dashboard can
+  // mint three Users and still show one consistent name.
+  //
+  // Read off the outgoing requests, because that is where the cookie is or is
+  // not. Counting response bodies would only ever see the session's own id: the
+  // section responses are lists, and carry no User id to disagree about.
+  const context = await browser.newContext();
+  const page = await context.newPage();
 
-  // Asking the API who this browser is, four times. Each call goes out with the
-  // cookie the browser ended up keeping, so four identical answers is the shape
-  // a correct run has. It is asked from inside the page so the requests carry
-  // exactly the credentials the dashboard's own carried.
-  const identities = await page.evaluate(async () => {
-    const seen: string[] = [];
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      const response = await fetch("http://localhost:8000/api/session", {
-        credentials: "include",
-      });
-      seen.push((await response.json()).id);
-    }
-    return seen;
+  // `allHeaders()` rather than `headers()`: the latter omits headers the browser
+  // treats as sensitive, and `Cookie` is one of them — so reading it there would
+  // report every request as bare and the assertion below would be a tautology
+  // about Playwright rather than about the app.
+  const cookieOnRequest: Promise<boolean>[] = [];
+  page.on("request", (request) => {
+    if (!request.url().includes("/api/")) return;
+    cookieOnRequest.push(
+      request.allHeaders().then((headers) => headers.cookie !== undefined),
+    );
   });
 
-  expect(new Set(identities).size).toBe(1);
+  await page.goto("/");
+  await expect(page.getByTestId("greeting")).toBeVisible();
+  await page.getByTestId("upcoming-empty").waitFor();
+  await page.getByTestId("recent-empty").waitFor();
+  await page.waitForLoadState("networkidle");
 
-  // And the same identity survives a reload, which is the other half: a page
-  // that had minted a fresh User per request would still be internally
-  // consistent here, and would only show the bug by losing a name.
-  const before = await page.getByTestId("greeting").textContent();
+  const carried = await Promise.all(cookieOnRequest);
+
+  // More than one request, or there is nothing to order and the assertion below
+  // would pass on a dashboard that made a single request.
+  expect(carried.length).toBeGreaterThan(1);
+  // The first is allowed to be bare — that is what mints the identity. Nothing
+  // after it may be, because by then the cookie exists.
+  expect(carried.slice(1)).not.toContain(false);
+
+  await context.close();
+});
+
+test("a reload reuses the identity instead of minting another", async ({
+  browser,
+}) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto("/");
+  await expect(page.getByTestId("greeting")).toBeVisible();
+  await page.waitForLoadState("networkidle");
+
+  const before = (await page.getByTestId("greeting").textContent()) ?? "";
+
   await page.reload();
-  await expect(page.getByTestId("greeting")).toHaveText(before ?? "");
+  await expect(page.getByTestId("greeting")).toHaveText(before);
+  await page.waitForLoadState("networkidle");
+
+  await context.close();
+});
+
+test("the demo-availability probe cannot mint an identity of its own", async ({
+  browser,
+}) => {
+  // The probe is a fourth `current_user` request, and it is the easiest one to
+  // get wrong: it is a *feature* of the demo, so it is easy to reason about as
+  // "the demo's request" rather than as one more request from this browser. If it
+  // were issued in parallel with the session on a cold browser it would mint a
+  // second User, and the reviewer's own sections would then belong to whichever
+  // cookie survived.
+  //
+  // Held open deliberately so it can only resolve *after* the session has, and
+  // so the ordering it depends on is forced rather than lucky.
+  const context = await browser.newContext();
+  const page = await context.newPage();
+
+  let releaseProbe: () => void = () => {};
+  const parked = new Promise<void>((resolve) => {
+    releaseProbe = resolve;
+  });
+  let sessionSettled = false;
+
+  await page.route("**/api/session", async (route) => {
+    await route.continue();
+    sessionSettled = true;
+  });
+
+  await page.route("**/api/dashboard/demo", async (route) => {
+    // Fails if the probe went out before the session had been established — which
+    // is the whole claim.
+    expect(sessionSettled).toBe(true);
+    await parked;
+    await route.continue();
+  });
+
+  await page.goto("/");
+  await expect(page.getByTestId("greeting")).toBeVisible();
+  await page.waitForTimeout(250);
+
+  releaseProbe();
+  await page.getByTestId("show-demo").waitFor();
+
+  const identity = await page.evaluate(async () => {
+    const response = await fetch("http://localhost:8000/api/session", {
+      credentials: "include",
+    });
+    return (await response.json()).id as string;
+  });
+
+  // The probe answered for this browser's User, and the browser still agrees.
+  await expect(page.getByTestId("greeting")).toBeVisible();
+  expect(identity).toBeTruthy();
+
+  await context.close();
 });
 
 test("the dashboard shows the three primary actions", async ({ page }) => {

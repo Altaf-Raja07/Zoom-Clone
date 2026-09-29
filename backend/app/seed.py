@@ -236,14 +236,23 @@ def _ensure_upcoming_meetings(session: Session, host: User, now: datetime) -> bo
       seed last ran, and a stale one is an empty Upcoming section on a screen
       whose job is to look populated;
     - a Meeting that is already there under a *different* id is left alone, which
-      is what a seed edited since the last run leaves behind.
+      is what a seed edited since the last run leaves behind;
+    - a Meeting ID already held by a row this seed does not own is *skipped*, not
+      taken.
 
-    That last one is not hypothetical: the ids here are derived from the plan's
-    keys, so changing a key renames a seeded row that is already in the database
-    — and a seed that only looked by id would try to insert the same Meeting ID
-    string again and take the whole app down with a `UNIQUE` violation, on every
-    start, forever. Looking the Meeting up by its *Meeting ID* as well means a
-    renamed row is adopted rather than duplicated, and the seed is safe to edit.
+    The third of those is not hypothetical: the ids here are derived from the
+    plan's keys, so changing a key renames a seeded row that is already in the
+    database — and a seed that only looked by id would try to insert the same
+    Meeting ID string again and take the whole app down with a `UNIQUE` violation,
+    on every start, forever. Looking the Meeting up by its *Meeting ID* as well
+    means a renamed row is adopted rather than duplicated, and the seed is safe to
+    edit.
+
+    And every adoption is scoped to rows the Demo Identity hosts, because a
+    matching Meeting ID is not by itself proof of ownership — those codes come
+    from the same eleven-digit space a real host's do. A collision with somebody
+    else's Meeting is left strictly alone: the seed loses one row rather than
+    rewriting a guest's booking, and rather than refusing to start.
 
     Rolling rather than adding is what keeps the count fixed, so a seed running
     on every restart cannot grow the database — which is the property the
@@ -256,10 +265,17 @@ def _ensure_upcoming_meetings(session: Session, host: User, now: datetime) -> bo
     wrote = False
 
     for plan in _PLANNED:
-        meeting = _find_planned_meeting(session, plan)
+        meeting = _find_planned_meeting(session, plan, host.id)
         if meeting is None:
-            _add_scheduled_meeting(session, host, plan, now)
-            wrote = True
+            # Only when the Meeting ID is free. A code held by somebody else's
+            # row cannot be taken from them and cannot be created alongside them,
+            # so this plan is skipped: the seed comes up with one fewer seeded
+            # Meeting rather than taking the deployment down. Skipping is the only
+            # option that neither rewrites a stranger's row nor crashes on start,
+            # and it is invisible — the reviewer sees a slightly shorter Upcoming.
+            if _meeting_id_is_free(session, plan):
+                _add_scheduled_meeting(session, host, plan, now)
+                wrote = True
         elif meeting.scheduled_start_at is not None and meeting.scheduled_start_at <= now:
             meeting.scheduled_start_at = _start_for(plan, now)
             wrote = True
@@ -267,19 +283,51 @@ def _ensure_upcoming_meetings(session: Session, host: User, now: datetime) -> bo
     return wrote
 
 
-def _find_planned_meeting(session: Session, plan: _PlannedMeeting) -> Meeting | None:
-    """The seeded Meeting for one plan, by row id or by Meeting ID.
+def _meeting_id_is_free(session: Session, plan: _PlannedMeeting) -> bool:
+    """Whether nothing at all holds this plan's Meeting ID.
 
-    Two lookups for one row, because the two can disagree: the id is derived from
-    the plan's key and the Meeting ID is stored, so a plan whose key has been
-    edited since the database was seeded has the old row's *Meeting ID* and a new
-    id. Taking the stored one first is what stops that being a duplicate insert
-    and a dead deployment.
+    Asked after the seeded-row lookup has already missed, so the only way to get
+    here with a taken code is a row this seed does not own — which is precisely
+    the case that must not become an insert.
+    """
+    return (
+        session.scalar(select(Meeting).where(Meeting.join_code == plan.join_code))
+        is None
+    )
+
+
+def _find_planned_meeting(
+    session: Session, plan: _PlannedMeeting, host_id: str
+) -> Meeting | None:
+    """The seeded Meeting for one plan, or None if this database has none.
+
+    Two lookups, because they answer different questions and the *order* is the
+    safety property here.
+
+    By row id first: the id is `uuid5`-derived from the plan's key, so a hit is
+    certainly a seeded row — a Meeting this seed wrote, about this plan.
+
+    By stored Meeting ID second, and only for a row the Demo Identity hosts. That
+    combination is what makes reconciliation safe: a plan whose key has been
+    edited since the database was seeded has the old row's Meeting ID and a new
+    id, and adopting it is what stops a duplicate insert and a dead deployment.
+    But a Meeting ID on its own is *not* proof of ownership — the codes are drawn
+    from the same eleven-digit space as a real host's, so a guest's Meeting could
+    in principle hold `55500022233`. Requiring the Demo Identity as host means
+    reconciliation can only ever touch rows this seed is responsible for. A
+    stranger's row is left alone even if it collides, and the collision is then
+    the unique-constraint problem it genuinely is.
     """
     by_id = session.get(Meeting, _id_for(f"meeting:{plan.key}"))
     if by_id is not None:
         return by_id
-    return session.scalar(select(Meeting).where(Meeting.join_code == plan.join_code))
+
+    return session.scalar(
+        select(Meeting).where(
+            Meeting.join_code == plan.join_code,
+            Meeting.host_id == host_id,
+        )
+    )
 
 
 def _start_for(plan: _PlannedMeeting, now: datetime) -> datetime:

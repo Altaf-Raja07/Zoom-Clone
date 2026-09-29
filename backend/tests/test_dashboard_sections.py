@@ -12,6 +12,7 @@ rows, because several of the interesting orders need a `created_at` and a
 against its own fixture rather than against the application.
 """
 
+import time
 from datetime import UTC, datetime, timedelta
 
 from .conftest import Session
@@ -191,20 +192,33 @@ def test_recent_is_not_filtered_by_the_start_time_in_either_direction(
 # --- Recent ordering, including the case that will otherwise be "fixed" ----
 
 
-def test_recent_is_ordered_by_the_later_of_created_at_and_started_at(seeded):
-    """Recency of *activity*, newest first.
+def test_recent_falls_back_to_created_at_for_a_meeting_that_never_started(
+    client: Session,
+):
+    """The null branch: `started_at IS NULL` sorts by `created_at`.
 
-    Checked against the value the section claims to sort by, recomputed here from
-    the two timestamps the API returns — so the assertion is about the promise
-    rather than about matching one hard-coded list.
+    Two Meetings created a measurable distance apart, so the order is determined
+    by creation and there is nothing else for it to be determined by. A query that
+    put a null `started_at` *first* — by sorting on the column and letting nulls
+    lead, which is what an unhandled `ORDER BY started_at DESC` does in SQLite —
+    would put the older one on top.
+    """
+    older = schedule(client, title="Older", scheduled_start_at=at(timedelta(days=4))).json()
+    time.sleep(0.01)
+    newer = client.post("/api/meetings").json()
 
-    The seeded completed Meeting is the one row that pins the `started_at` branch:
-    it started a minute after it was created, and it is two days old, so it must
-    sort *below* the three seeded bookings created today. Ordering by
-    `created_at` alone would put those three first anyway and pass — so what is
-    asserted is the property that separates them: the timestamp each row is sorted
-    on is never earlier than its own creation, and the list is non-increasing in
-    that value.
+    assert [meeting["id"] for meeting in recent(client)] == [newer["id"], older["id"]]
+    assert all(meeting["started_at"] is None for meeting in recent(client))
+
+
+def test_a_later_started_at_takes_precedence_over_an_earlier_creation(seeded):
+    """The `started_at` branch: the later of the two wins.
+
+    The seeded completed Meeting is the only row in the system with a non-null
+    `started_at`, and it started a minute after it was created. Recomputing the
+    value from the two timestamps the API returns — rather than hard-coding a
+    position — asserts the *rule* the section promises rather than the shape of
+    one particular list.
     """
     demo = Session(seeded).get("/api/dashboard/demo").json()["recent"]
 
@@ -220,6 +234,14 @@ def test_recent_is_ordered_by_the_later_of_created_at_and_started_at(seeded):
     assert recencies == sorted(recencies, reverse=True)
     assert any(meeting["started_at"] for meeting in demo), (
         "the branch that reads started_at needs a Meeting that really started"
+    )
+
+    # And specifically that the started branch was the one taken for it: its own
+    # creation is a minute *earlier* than its start, so the two branches pick
+    # different values for this row and the later one is what appears.
+    completed = next(m for m in demo if m["started_at"])
+    assert datetime.fromisoformat(completed["started_at"]) > datetime.fromisoformat(
+        completed["created_at"]
     )
 
 

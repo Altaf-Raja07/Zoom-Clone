@@ -272,21 +272,26 @@ def list_recent_meetings(session: Session, host_id: str) -> list[Meeting]:
     happened.
 
     The recency is therefore the later of `created_at` and `started_at`, falling
-    back to `created_at`. Written as an explicit CASE rather than as
-    `COALESCE(started_at, created_at)`, which is the *first* non-null value and
-    not the later one — the two are identical whenever a Meeting is created
-    before it starts, which is most of them, so the mistake would be invisible
-    right up until a Meeting seeded or imported with a start time in the past.
-
-    One consequence is a regression test rather than a bug: a Scheduled Meeting
-    whose start time has passed and which *nobody ever started* has a null
-    `started_at`, so it sorts by `created_at` and can fall below a freshly made
-    Instant Meeting. That is correct — nobody started it — and the test that
-    asserts it exists so nobody "fixes" it later.
+    back to `created_at`. One consequence is a regression test rather than a bug:
+    a Scheduled Meeting whose start time has passed and which *nobody ever
+    started* has a null `started_at`, so it sorts by `created_at` and can fall
+    below a freshly made Instant Meeting. That is correct — nobody started it —
+    and the test that asserts it exists so nobody "fixes" it later.
 
     `id` breaks ties, so two Meetings created in the same instant come back in
     the same order every time rather than in whatever order the database felt
     like.
+
+    **On `CASE` versus `COALESCE`, stated honestly.** The expression below is
+    the later of the two timestamps; `COALESCE(started_at, created_at)` is the
+    *first* non-null of the two. Those differ only when `started_at` precedes
+    `created_at` — and in this domain that cannot happen, because `started_at` is
+    stamped when somebody joins a Meeting that already exists. So the two
+    expressions are observationally equivalent over every row this application can
+    produce, and **no test in this repository distinguishes them.** Writing the
+    shorter one would be fine today and quietly wrong the day a row arrives by
+    import, restore, or clock skew. It is spelled out because the intent is the
+    thing worth preserving, not because the current data needs it.
 
     Capped at `RECENT_MEETINGS_LIMIT` and *not* paginated: a host with four
     hundred Meetings is not a case this app has, and a "show more" control on a

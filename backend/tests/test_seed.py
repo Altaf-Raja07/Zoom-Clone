@@ -15,12 +15,12 @@ asserted against a clock the test controls rather than against today's date.
 
 import sqlite3
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from app.db import get_engine
 from app.models import Meeting, session_factory_for
-from app.seed import _PLANNED, _find_planned_meeting, _id_for, seed
+from app.seed import _PLANNED, _find_planned_meeting, _id_for, demo_identity, seed
 
 from .conftest import Session
 
@@ -226,9 +226,11 @@ def test_a_seed_edited_since_the_database_was_seeded_does_not_duplicate_a_meetin
     generate, which is exactly the state an edited seed finds.
     """
     before = count_rows(database_path)
+    demo_id = demo_identity(session_factory_for(get_engine())()).id
     with session_factory_for(get_engine())() as session:
         for plan in _PLANNED:
-            meeting = _find_planned_meeting(session, plan)
+            meeting = _find_planned_meeting(session, plan, demo_id)
+            assert meeting is not None, f"the seed did not write {plan.key}"
             meeting.id = str(uuid.uuid4())
         session.commit()
 
@@ -241,6 +243,68 @@ def test_a_seed_edited_since_the_database_was_seeded_does_not_duplicate_a_meetin
     assert len(Session(seeded).get("/api/dashboard/demo").json()["upcoming"]) == len(
         _PLANNED
     )
+
+
+def test_reconciling_never_touches_a_meeting_a_real_host_created(
+    seeded, client: Session, count_rows, database_path
+):
+    """Adoption is scoped to rows the seed is responsible for.
+
+    The fallback lookup matches on a stored Meeting ID, and those are drawn from
+    the same eleven-digit space a real host's are — so "the Meeting ID matches"
+    is not by itself proof that a row is seeded. If reconciliation were willing to
+    adopt any row with a matching code, then a collision would let the seed
+    rewrite a guest's Meeting's start time and, worse, adopt it into the Demo
+    Identity's Upcoming list.
+
+    Forced rather than waited for: a guest's Meeting is given the *exact* code a
+    seeded plan uses, which is the state this guards against. What must survive is
+    the row itself — its id, its host, and its start time.
+    """
+    stolen = _PLANNED[0].join_code
+    created = client.post(
+        "/api/meetings/scheduled",
+        json={
+            "title": "A real host's meeting",
+            "description": None,
+            # Deliberately in the past: a seeded row would be rolled forward, so
+            # if the guest's row were adopted its start time would visibly move.
+            "scheduled_start_at": (datetime.now(UTC) - timedelta(days=3)).isoformat(),
+            "duration_minutes": 30,
+        },
+    )
+    # The API draws its own Meeting ID, so the collision is arranged rather than
+    # waited for. Both halves matter: the seeded row has to give up its *code*
+    # (so the guest's row can hold it) and its *id* (so the seed's primary lookup
+    # misses and it has to fall through to the code lookup at all — otherwise this
+    # test would pass without ever exercising the guard).
+    with session_factory_for(get_engine())() as session:
+        demo_id = demo_identity(session).id
+        seeded_row = _find_planned_meeting(session, _PLANNED[0], demo_id)
+        assert seeded_row is not None
+        seeded_row.join_code = "55500099999"
+        seeded_row.id = str(uuid.uuid4())
+        session.flush()
+        session.get(Meeting, created.json()["id"]).join_code = stolen
+        session.commit()
+
+    before = count_rows(database_path)
+    run_seed()
+
+    with session_factory_for(get_engine())() as session:
+        untouched = session.get(Meeting, created.json()["id"])
+        assert untouched is not None, "reconciliation deleted somebody's Meeting"
+        assert untouched.host_id != demo_identity(session).id
+        # Already a datetime: the ORM reattaches UTC on the way out of SQLite.
+        assert untouched.scheduled_start_at < datetime.now(UTC), (
+            "reconciliation rolled a real host's Meeting forward"
+        )
+
+    # And the guest still owns exactly the Meeting they made.
+    assert count_rows(database_path) == before
+    assert [meeting["id"] for meeting in client.get("/api/dashboard/recent").json()["recent"]] == [
+        created.json()["id"]
+    ]
 
 
 def test_the_completed_meeting_is_never_rolled_forward(seeded, database_path):
