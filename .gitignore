@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# Database (the seeded copy is generated on startup, not committed)
+*.db
+*.sqlite3
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+npm-debug.log*
+yarn-error.log*
+
+# Environment
+.env
+.env.local
+.env*.local
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
+# Note: .scratch/ is intentionally NOT ignored. The tickets have no tracker to
+# live in yet, so the repo is currently their only versioned home.
