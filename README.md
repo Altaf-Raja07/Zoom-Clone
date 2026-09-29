@@ -3,7 +3,7 @@
 A Zoom-style conferencing platform. This repository is the product spec, the
 architecture decisions behind it, and the implementation.
 
-**Current state:** tickets 01 to 05. A first-time visitor opens the app, is
+**Current state:** tickets 01 to 05 and 07. A first-time visitor opens the app, is
 given a real `User` row through a signed cookie, and is greeted on the dashboard
 by their Display Name. There is no signup and no login step. Clicking New
 Meeting creates a Meeting and walks the host into its room, with an eleven-digit
@@ -16,8 +16,17 @@ description, date, time and duration, and hands back an Invite Link that can be
 shared immediately — the link is refused as too early only when someone tries to
 *join* through it before the Meeting's time. The dashboard's **Upcoming
 Meetings** and **Recent Meetings** sections are both live, driven by real rows
-and both filtered on the Host, so a reviewer never sees a stranger's booking. The
-pre-join screen and the live room are not built yet.
+and both filtered on the Host, so a reviewer never sees a stranger's booking.
+
+**The room is live.** Open the same Invite Link in a second browser and the
+first person sees you appear in their participant list, with a count on the
+title bar, without refreshing — one WebSocket per person over an in-process
+broadcast hub. Leaving stamps a timestamp, and a past attendee does not reappear.
+The room's own stage is dark, matching the Zoom Workplace screenshots, and it
+carries the Meeting's title, the participant list, and each person's name. It has
+**no toolbar, no mute, no camera, no chat and no leave button yet** — those are
+tickets 08 to 10, each of which is behaviour rather than styling. The pre-join
+screen is being built in parallel with this one.
 
 ## Seeing a populated dashboard
 
@@ -97,6 +106,41 @@ discovered:
   convention and are unvalidated.
 - **There is no real audio or video transport.** ADR-0001 says why, and
   explicitly says not to "fix" it by wiring up `RTCPeerConnection` without
-  TURN, which works on localhost and fails in the deployed demo.
-- **The backend must run as exactly one instance with exactly one worker**, once
-  the in-process realtime hub exists. That is not a bug. See ADR-0002.
+  TURN, which works on localhost and fails in the deployed demo. Remote
+  participants are drawn as simulated tiles and are labelled as such in the
+  room, because a tile that looked like live video would be the one genuinely
+  misleading thing on screen.
+- **The backend must run as exactly one instance with exactly one worker.** The
+  broadcast hub holds open WebSocket connections in process memory, so a second
+  worker or a second instance would put participants into two sets of rooms that
+  cannot see each other. It presents as an occasional stale participant list, it
+  gets worse as the app gets busier, and it looks exactly like a scaling win.
+  It is not a bug and scaling does not fix it. `scripts/dev-backend.sh` and
+  `render.yaml` both state `--workers 1` and `WEB_CONCURRENCY=1` explicitly
+  rather than relying on the defaults, so that changing it is a visible edit.
+  See ADR-0002 and `backend/app/realtime.py`.
+
+## The realtime layer
+
+One WebSocket per participant, scoped to one Meeting, at
+`/api/meetings/{id}/ws`, fanned out by an in-process hub. Messages are JSON with
+a `type`:
+
+| Direction | Type | Meaning |
+|---|---|---|
+| server → client | `participants` | The whole room, on connect and after every change. Always the full list, never a delta, so a client cannot drift out of step through a dropped frame. |
+| server → client | `refused` | The Meeting cannot be entered, and this is the sentence saying why. |
+| server → client | `pong` | The answer to a `ping`. |
+| client → server | `ping` | Every ~25 seconds. |
+
+**The heartbeat is load-bearing, not politeness.** Render's free tier idles
+aggressively, and an idled instance drops the WebSocket underneath a meeting that
+is still happening. The ping is what keeps the service awake.
+
+**Presence is a query, not a cache.** "Who is in this room" is answered by one
+repository function carrying the `left_at IS NULL` filter, and every broadcast
+re-reads it. The hub holds which *sockets* are attached, never who is present —
+so a dropped connection cannot leave a phantom in the list. `GET
+/api/meetings/{id}/participants` exists for the same reason: it is the only way
+to observe that filter, and every WebSocket test runs in a room where nobody has
+left yet.

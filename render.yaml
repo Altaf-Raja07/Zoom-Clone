@@ -19,11 +19,21 @@ services:
     # start rather than once: it is idempotent, and the free plan's frequent
     # restarts are exactly the case where a seed that only ran on a genuine
     # first run would leave the app empty (user story 85).
+    # `--workers 1` is stated rather than left to the default, and
+    # `WEB_CONCURRENCY` is pinned, because the broadcast hub holds open
+    # WebSocket connections in process memory (`backend/app/realtime.py`). A
+    # second worker — or a second instance, which Render lets you buy with a
+    # plan change — would scatter participants into rooms that cannot see each
+    # other. It presents as an occasional stale participant list, which is
+    # indistinguishable from a bug and scales with how busy the app is, so it
+    # would be "fixed" by scaling. It is not a bug and scaling does not fix it:
+    # see ADR-0002. A second instance is the same rule, and `instanceCount` /
+    # `numInstances` must stay at 1 for the same reason.
     startCommand: >-
       cd backend
       && alembic upgrade head
       && python -m app.seed
-      && uvicorn app.main:create_app --factory --host 0.0.0.0 --port $PORT
+      && uvicorn app.main:create_app --factory --workers 1 --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
     # A persistent disk is what makes the guest cookie survive a redeploy rather
     # than just a restart. Render does not offer disks on the free plan, so on
@@ -36,6 +46,12 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.11"
+      # Render sets this for Node services and would set it for a Python one if
+      # asked; pinned to 1 for the same reason as `--workers 1` above, so that
+      # raising it is a deliberate, visible edit rather than a variable somebody
+      # sets to "make it faster".
+      - key: WEB_CONCURRENCY
+        value: "1"
       - key: MEETLY_DATABASE_PATH
         # Relative to backend/, where startCommand runs. Deliberately writable:
         # the application creates the directory itself, and on the free plan

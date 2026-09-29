@@ -36,6 +36,19 @@ const PALETTE_PREFIXES = ["--palette-"];
 
 const violations = [];
 
+/**
+ * Blank out CSS comments, preserving line numbers.
+ *
+ * Replaced with spaces rather than removed so a reported line number still
+ * points at the line a person has to edit — a guard rail that reports the wrong
+ * line is a guard rail people learn to ignore.
+ */
+function stripComments(source) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, (comment) =>
+    comment.replace(/[^\n]/g, " "),
+  );
+}
+
 function walk(directory) {
   return readdirSync(directory).flatMap((entry) => {
     const path = join(directory, entry);
@@ -70,11 +83,24 @@ for (const path of cssModuleFiles) {
     }
   }
 
-  // A colour literal anywhere in a component stylesheet — in a token
-  // declaration or in a plain property — is a colour the component owns.
+  // A colour literal in a component stylesheet's *values* is a colour the
+  // component owns.
+  //
+  // Comments and property names are excluded, and both exclusions are
+  // correctness fixes rather than loosening. Scanning whole lines reported
+  // `white-space: nowrap` as a hardcoded white, and prose describing the stage
+  // as "near-black" as a hardcoded black — neither is a value, and a guard rail
+  // that cries wolf on those gets a `@media` workaround written around it
+  // instead of being obeyed, which costs more than the rule ever protected.
   if (layer === 3) {
-    for (const [index, line] of source.split("\n").entries()) {
-      if (COLOUR_LITERAL.test(line)) {
+    for (const [index, line] of stripComments(source).split("\n").entries()) {
+      // Everything after the first colon is the value side of a declaration.
+      // A line with no colon cannot be one, so it is skipped rather than
+      // searched — a selector is a name, never a colour.
+      const colon = line.indexOf(":");
+      if (colon === -1) continue;
+      const value = line.slice(colon + 1);
+      if (COLOUR_LITERAL.test(value)) {
         violations.push(
           `${name}:${index + 1} hardcodes a colour (${line.trim()}). Use a semantic token.`,
         );

@@ -39,4 +39,14 @@ export MEETLY_CORS_ORIGINS="${MEETLY_CORS_ORIGINS:-http://localhost:3000}"
 # `app`: settings are read when the application is built, so importing the
 # module at the top level would capture the environment before the script sets
 # it.
-exec "$python" -m uvicorn app.main:create_app --factory --port "${PORT:-8000}" "$@"
+#
+# `--workers 1` is explicit even though it is the default, because it is the
+# single most likely line in this repository to be "improved". The broadcast hub
+# holds open WebSocket connections in process memory (`app/realtime.py`), so a
+# second worker would put participants into two sets of rooms that cannot see
+# each other: the second person joins, and the first person is never told. It
+# presents as "somebody's list is stale" rather than as an error, and it scales
+# with how busy the app is, so it would be reported as a performance bug. It is
+# not a bug and there is no fix — see ADR-0002.
+exec "$python" -m uvicorn app.main:create_app --factory --workers 1 \
+  --port "${PORT:-8000}" "$@"

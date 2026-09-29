@@ -338,3 +338,113 @@ def get_participation(
             Participant.user_id == user_id,
         )
     )
+
+
+def join_meeting(
+    session: Session,
+    meeting: Meeting,
+    user: User,
+    *,
+    microphone_on: bool = True,
+    camera_on: bool = True,
+) -> Participant:
+    """Record a User as present in a Meeting, and stamp the Meeting as begun.
+
+    **Rejoining revives the existing row rather than inserting a second one.**
+    There is a unique constraint on `(meeting_id, user_id)`, so a person who
+    reloads the room — or closes a tab and comes back — has to land on the row
+    they already have. Inserting afresh would raise an `IntegrityError` the
+    caller has no sensible way to answer, and clearing `left_at` is the honest
+    reading: they are here now, so the record of their absence is over.
+
+    The alternative, deleting the old row and inserting a new one, would keep
+    attendance honest and lose the `joined_at` of their first arrival. Soft
+    participation is a deliberate choice (ADR-0004); reviving is the behaviour
+    that choice implies.
+
+    **`started_at` is stamped once and never re-stamped.** It is the honest
+    record of when a Meeting *began*, and a second participant arriving an hour
+    later has not begun it again. Re-stamping would also quietly break Recent
+    Meetings' recency ordering, which sorts on the later of `created_at` and
+    `started_at` — a Meeting still in progress would drift to the top of the
+    list every time somebody joined it.
+
+    The device booleans are written here rather than being left at their column
+    defaults because a person who turned their camera off on the pre-join screen
+    must not appear in the room broadcasting video (SPEC.md, story 57). They
+    arrive as arguments rather than being read from a global, so the pre-join
+    decision stays the client's and this function stays a plain fact about the
+    database.
+    """
+    participation = get_participation(session, meeting.id, user.id)
+    if participation is None:
+        participation = Participant(
+            meeting_id=meeting.id,
+            user_id=user.id,
+            is_muted=not microphone_on,
+            is_video_on=camera_on,
+        )
+        session.add(participation)
+    else:
+        # Someone already in the room reconnected. `joined_at` is left alone: it
+        # is when they first arrived, and overwriting it would make a reconnect
+        # look like a fresh arrival to anything that reads the timestamp.
+        participation.left_at = None
+        participation.is_muted = not microphone_on
+        participation.is_video_on = camera_on
+
+    if meeting.started_at is None:
+        meeting.started_at = utcnow()
+
+    session.commit()
+    return participation
+
+
+def leave_meeting(session: Session, participation: Participant) -> Participant:
+    """Stamp the moment somebody left, keeping the row (ADR-0004).
+
+    Already needed by this ticket, not only by the one about leaving: a socket
+    that drops — a closed tab, a laptop that slept — must not leave somebody
+    listed as present for the rest of the Meeting's life. Ticket 10 adds the
+    deliberate "Leave" control and the notification; the *fact* has to be
+    recorded here either way, or the participant list is simply wrong.
+
+    Leaving twice is not an error. A socket close after an explicit leave is the
+    ordinary case, and a second `left_at` is the same instant to within
+    microseconds — so the earliest is kept and the value is not moved forward.
+    """
+    if participation.left_at is None:
+        participation.left_at = utcnow()
+        session.commit()
+    return participation
+
+
+def set_device_state(
+    session: Session,
+    participation: Participant,
+    *,
+    microphone_on: bool,
+    camera_on: bool,
+) -> bool:
+    """Record whether a participant is audible and visible, and say if it changed.
+
+    The booleans arrive as arguments rather than being read from anywhere global,
+    so this stays a plain fact about the database and the pre-join decision stays
+    the client's. `join_meeting` writes the same two columns on arrival; this is
+    the version that can be called again without re-stamping `joined_at` or
+    disturbing a departure, which is what ticket 08's mute control will need.
+
+    **Returns whether anything actually changed**, and that is the whole point of
+    it being a return value. The caller broadcasts the room to every socket when
+    it did, so a broadcast on every no-op would have every participant's browser
+    re-render an identical list — and, worse, would make "a state change was
+    broadcast" indistinguishable from "a state change happened", which is the
+    distinction every test of ticket 08 needs.
+    """
+    is_muted = not microphone_on
+    if participation.is_muted == is_muted and participation.is_video_on == camera_on:
+        return False
+    participation.is_muted = is_muted
+    participation.is_video_on = camera_on
+    session.commit()
+    return True

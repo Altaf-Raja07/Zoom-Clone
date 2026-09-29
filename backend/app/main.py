@@ -16,9 +16,10 @@ from collections.abc import Callable
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import dashboard, meetings, session
+from .api import dashboard, meetings, rooms, session
 from .config import get_settings
 from .join_codes import generate_join_code
+from .realtime import MeetingHub
 
 __all__ = ["create_app"]
 
@@ -32,6 +33,18 @@ def create_app(join_code_source: Callable[[], str] = generate_join_code) -> Fast
     # be replaced in tests without any of them reaching below the HTTP seam.
     app.state.join_code_source = join_code_source
 
+    # The broadcast hub, for the same reason and with the same caveat. It is
+    # per-application rather than module-level so that two applications in one
+    # process — which is exactly what the test suite builds — cannot see each
+    # other's participants, and so a test can assert on an empty room without
+    # arranging for one to be empty.
+    #
+    # **One instance, one worker, forever.** The hub holds open sockets in
+    # process memory, so a second worker would scatter participants into rooms
+    # that cannot see each other. It looks like free headroom and is not. See
+    # `realtime.MeetingHub` and ADR-0002.
+    app.state.hub = MeetingHub()
+
     # CORS is configured from a single env-var origin allowlist, and only here.
     app.add_middleware(
         CORSMiddleware,
@@ -44,6 +57,7 @@ def create_app(join_code_source: Callable[[], str] = generate_join_code) -> Fast
     app.include_router(session.router, prefix="/api")
     app.include_router(meetings.router, prefix="/api")
     app.include_router(dashboard.router, prefix="/api")
+    app.include_router(rooms.router, prefix="/api")
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
