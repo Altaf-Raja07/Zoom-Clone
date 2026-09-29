@@ -3,7 +3,7 @@
 A Zoom-style conferencing platform. This repository is the product spec, the
 architecture decisions behind it, and the implementation.
 
-**Current state:** tickets 01 to 04. A first-time visitor opens the app, is
+**Current state:** tickets 01 to 05. A first-time visitor opens the app, is
 given a real `User` row through a signed cookie, and is greeted on the dashboard
 by their Display Name. There is no signup and no login step. Clicking New
 Meeting creates a Meeting and walks the host into its room, with an eleven-digit
@@ -14,8 +14,28 @@ or already finished one is refused with a plain sentence instead of a blank
 screen. Clicking Schedule Meeting books a Meeting for later with a topic,
 description, date, time and duration, and hands back an Invite Link that can be
 shared immediately — the link is refused as too early only when someone tries to
-*join* through it before the Meeting's time. The pre-join screen, the dashboard
-sections and the live room are not built yet.
+*join* through it before the Meeting's time. The dashboard's **Upcoming
+Meetings** and **Recent Meetings** sections are both live, driven by real rows
+and both filtered on the Host, so a reviewer never sees a stranger's booking. The
+pre-join screen and the live room are not built yet.
+
+## Seeing a populated dashboard
+
+A first run seeds a **Demo Identity** — Altaf Raja, four guests, one completed
+Instant Meeting with real join and leave timestamps, and three Scheduled Meetings
+over the next few days. The seed runs on every start (`python -m app.seed`) and is
+idempotent, so a restart adds nothing.
+
+Because your own two sections are filtered on the Host, the seeded data is behind
+an explicit **"Show the demo identity's meetings"** button at the foot of the
+dashboard rather than being served to you as though it were your own. It is
+read-only: it does not sign you in as the Demo Identity, and any Meeting you
+create stays yours.
+
+What the seed deliberately does **not** write: any participant still present in a
+room, and any chat messages. Attendance that claims somebody is in a meeting that
+ended two days ago is the one kind of fake data that would make the live room look
+broken on arrival. Start your own meeting to exercise live state.
 
 - `SPEC.md` — the product spec and the implementation decisions behind it
 - `GLOSSARY.md` — the domain language, and what to call things
@@ -44,8 +64,8 @@ Then, in two terminals:
 ```
 
 The database is a single SQLite file at `MEETLY_DATABASE_PATH`
-(default `backend/data/meetly.sqlite3`). Migrations run on every start, so
-there is no manual step before the app serves.
+(default `backend/data/meetly.sqlite3`). Migrations run on every start and the
+seed runs on every start, so there is no manual step before the app serves.
 
 The frontend reaches the backend at `NEXT_PUBLIC_API_BASE_URL` (default
 `http://localhost:8000`), sending credentials so the identity cookie travels.

@@ -15,9 +15,14 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -e './backend'
+    # `python -m app.seed` between the migration and the server, and on every
+    # start rather than once: it is idempotent, and the free plan's frequent
+    # restarts are exactly the case where a seed that only ran on a genuine
+    # first run would leave the app empty (user story 85).
     startCommand: >-
       cd backend
       && alembic upgrade head
+      && python -m app.seed
       && uvicorn app.main:create_app --factory --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
     # A persistent disk is what makes the guest cookie survive a redeploy rather

@@ -142,6 +142,160 @@
   background: var(--action-primary-bg-hover);
 }
 
+/* The two sections the assignment names. A full-width band under the actions
+   rather than a column beside them: on a narrow screen a dashboard whose
+   sections sit beside each other leaves two unreadable half-widths, and these
+   are lists — they want the width. */
+.section {
+  margin-top: var(--space-6);
+}
+
+.sectionTitle {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+
+/* A sentence rather than a blank area, so "you have nothing booked" cannot be
+   mistaken for "this failed to load". */
+.empty {
+  margin-top: var(--space-3);
+  padding: var(--space-4);
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.meetingList {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.meetingCard {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+}
+
+.meetingCard:hover {
+  background: var(--surface-hover);
+}
+
+/* The date in its own column, so a list of Meetings reads as a list of dates
+   first and titles second — which is the order a host scanning for one needs. */
+.meetingWhen {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: var(--size-meeting-when-width);
+}
+
+.meetingDay {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+
+.meetingClock {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.meetingBody {
+  min-width: 0;
+}
+
+.meetingTitle {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.meetingMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.meetingStarted {
+  color: var(--status-live-bg);
+}
+
+.meetingLink {
+  font-size: var(--font-size-sm);
+  color: var(--text-accent);
+  text-decoration: none;
+}
+
+.meetingLink:hover {
+  text-decoration: underline;
+}
+
+/* The seeded first-run data, set apart from the reviewer's own sections rather
+   than interleaved with them. */
+.demo {
+  margin-top: var(--space-6);
+  padding: var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-subtle);
+}
+
+.demoTitle {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+
+.demoBlurb {
+  margin-top: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.demoName {
+  margin-top: var(--space-4);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-secondary);
+}
+
+.demoButton {
+  margin-top: var(--space-4);
+  min-height: var(--size-control-height);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--action-secondary-border);
+  border-radius: var(--radius-md);
+  background: var(--action-secondary-bg);
+  color: var(--action-secondary-text);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.demoButton:hover {
+  background: var(--action-secondary-bg-hover);
+}
+
+.demoError {
+  margin-top: var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--status-error-fg);
+}
+
 @media (max-width: 48rem) {
   .navbar {
     padding: 0 var(--space-4);
@@ -157,5 +311,20 @@
 
   .actions {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* One column per meeting row: the date above the title, and the Invite Link
+     below it. Three side-by-side columns on a phone leaves the title with
+     almost no width, which is the part a host actually reads. */
+  .meetingCard {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+  }
+
+  .meetingWhen {
+    flex-direction: row;
+    align-items: baseline;
+    gap: var(--space-2);
+    min-width: 0;
   }
 }

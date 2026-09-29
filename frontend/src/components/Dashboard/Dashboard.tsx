@@ -5,8 +5,18 @@
  * no login step and is greeted by name. Since then all three primary actions
  * have been made real — New Meeting creates a Meeting and walks the host into
  * the room, Join Meeting opens the join screen, and Schedule Meeting opens a
- * form that books one for later. The Upcoming / Recent sections arrive with the
- * dashboard ticket.
+ * form that books one for later. This ticket adds the two sections the
+ * assignment names, and the first-run Demo Identity.
+ *
+ * The two sections and the session load *together*, in one effect, rather than
+ * as three. They are one screen's worth of state arriving at once, and three
+ * effects would mean three chances for a partially-rendered dashboard: a
+ * greeting above two skeletons that never resolve.
+ *
+ * A Meeting a host creates from this page appears in Recent only on the next
+ * visit, because New Meeting navigates away into the room rather than staying
+ * here to re-fetch. Re-fetching on the way back would be the alternative, and it
+ * is not worth a second fetch of two lists for a screen the host already left.
  */
 
 "use client";
@@ -14,8 +24,20 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { ApiError, Session, createMeeting, getSession } from "@/lib/api";
+import {
+  ApiError,
+  DemoDashboard,
+  Meeting,
+  Session,
+  createMeeting,
+  explainApiError,
+  getDemoDashboard,
+  getRecentMeetings,
+  getSession,
+  getUpcomingMeetings,
+} from "@/lib/api";
 
+import { RecentMeetings, UpcomingMeetings } from "./MeetingLists";
 import styles from "./Dashboard.module.css";
 
 const PRIMARY_ACTIONS = [
@@ -36,19 +58,79 @@ export function Dashboard() {
   // the identity and by then it is too late to need it.
   const [sessionPending, setSessionPending] = useState(true);
 
+  // The seeded first-run data, held exactly as the API returned it. `null` means
+  // "not asked yet", which is why it is not a boolean — not-shown and shown are
+  // two states, and re-boxing the payload into a local type would be a second
+  // shape to keep in step with the API's for no gain.
+  const [demo, setDemo] = useState<DemoDashboard | null>(null);
+  const [demoError, setDemoError] = useState<string | null>(null);
+
+  // Whether this database has a Demo Identity at all. `undefined` while the
+  // probe is still in flight, which renders nothing — so the section cannot flash
+  // in and then vanish on an unseeded database.
+  const [demoAvailable, setDemoAvailable] = useState<boolean | undefined>(undefined);
+
+  const [upcoming, setUpcoming] = useState<Meeting[]>([]);
+  const [recent, setRecent] = useState<Meeting[]>([]);
+
   useEffect(() => {
     let cancelled = false;
 
+    // Two steps, not three requests in parallel — and this is the same identity
+    // race the disabled actions above exist for, arriving through a different
+    // door. A first visit has no cookie, and the API mints a *new* User for any
+    // request that arrives without one. Three cookie-less requests in flight are
+    // three Users; the two section fetches would answer for whichever User their
+    // response was built from, while the browser keeps whichever cookie landed
+    // last, and the reviewer is then looking at sections that belong to someone
+    // else while being greeted by their own name.
+    //
+    // So the session goes first and alone, and everything else follows it in its
+    // own right. Nothing here may be started until the session has landed, and
+    // nothing here may be started *alongside* anything else either — a chain, not
+    // a fan-out. The first cut of this code got that wrong twice: it fanned the
+    // two sections out in parallel, and then fanned the demo probe out beside
+    // the session. Both looked harmless and both broke a returning visitor's
+    // name.
     getSession()
       .then((loaded) => {
-        if (!cancelled) setSession(loaded);
+        if (cancelled) return;
+        setSession(loaded);
+
+        const sections = Promise.all([getUpcomingMeetings(), getRecentMeetings()])
+          .then(([loadedUpcoming, loadedRecent]) => {
+            if (cancelled) return;
+            setUpcoming(loadedUpcoming.upcoming);
+            setRecent(loadedRecent.recent);
+          })
+          // The sections failing does not un-greet the visitor: the session did
+          // land, and a dashboard showing a name and two empty sections is a far
+          // better state than one showing an error over the whole page.
+          .catch(() => {
+            if (cancelled) return;
+            setUpcoming([]);
+            setRecent([]);
+          });
+
+        // Asked only once the visitor is known, for the same reason as the
+        // sections above — and awaited here rather than fired, because a request
+        // started in this tick is a cookie-less request in a first visit.
+        const demoProbe = getDemoDashboard()
+          .then(() => {
+            if (!cancelled) setDemoAvailable(true);
+          })
+          .catch(() => {
+            if (!cancelled) setDemoAvailable(false);
+          });
+
+        return Promise.all([sections, demoProbe]);
       })
       .catch((cause: unknown) => {
         if (cancelled) return;
         setError(
           cause instanceof ApiError
             ? "We could not reach the server. Please try again."
-            : "Something went wrong loading your session.",
+            : "Something went wrong loading your dashboard.",
         );
       })
       .finally(() => {
@@ -59,6 +141,29 @@ export function Dashboard() {
       cancelled = true;
     };
   }, []);
+
+  /**
+   * The Demo Identity's sections, shown once.
+   *
+   * Opt-in on purpose and never a default: the seed's whole job is to make a
+   * first run look designed, and the way to do that without lying is to let a
+   * reviewer *ask* to see the seeded state rather than to serve it to them as
+   * though it were theirs. Nothing here touches the reviewer's identity — the
+   * two lists below stay their own.
+   */
+  async function showDemo() {
+    setDemoError(null);
+    try {
+      setDemo(await getDemoDashboard());
+    } catch (cause: unknown) {
+      setDemoError(
+        explainApiError(
+          cause,
+          "We could not load the demo data. Please try again in a moment.",
+        ),
+      );
+    }
+  }
 
   async function startMeeting() {
     setStarting(true);
@@ -162,6 +267,69 @@ export function Dashboard() {
             </button>
           ))}
         </div>
+
+        {/* The two sections the assignment names. Both render whatever arrives,
+            including nothing — the empty states are in the list components, next
+            to the lists they belong to rather than duplicated here. */}
+        <UpcomingMeetings meetings={upcoming} />
+        <RecentMeetings meetings={recent} />
+
+        {/* The seeded first-run data, behind an explicit ask. Not a tab and not a
+            default: a reviewer who wants it clicks, and a reviewer who does not
+            never sees it. Its own heading, because showing someone else's
+            Meetings under your own sections without one would be a lie about
+            whose meetings those are.
+
+            Rendered only once the API has said there is a Demo Identity to look
+            at. GLOSSARY.md is explicit that it is "only offered where
+            explicitly initialised", and a control that is always on screen is
+            always offered — so on an unseeded database this whole section is
+            absent rather than present and failing, which is the difference
+            between "there is nothing to see" and "something is broken". That
+            costs one probe on load; the alternative is a button on the deployed
+            app whose only possible outcome is an error message.
+
+            The probe is deliberately not part of the identity-carrying load
+            above: it depends on `current_user` like everything else, and three
+            cookie-less requests on a first visit are three Users. */}
+        {demoAvailable !== false ? (
+          <section className={styles.demo} aria-labelledby="demo-heading">
+            <h2 className={styles.demoTitle} id="demo-heading">
+              See a populated dashboard
+            </h2>
+            <p className={styles.demoBlurb}>
+              A first run is seeded with a Demo Identity, a completed meeting and
+              some bookings, so you can see these two sections with real data in
+              them. You keep your own meetings either way — this does not sign
+              you in as anybody.
+            </p>
+
+            {demo ? (
+              <div data-testid="demo-sections">
+                <p className={styles.demoName} data-testid="demo-name">
+                  {demo.display_name}&apos;s meetings
+                </p>
+                <UpcomingMeetings meetings={demo.upcoming} idPrefix="demo-upcoming" />
+                <RecentMeetings meetings={demo.recent} idPrefix="demo-recent" />
+              </div>
+            ) : (
+              <button
+                type="button"
+                className={styles.demoButton}
+                onClick={() => void showDemo()}
+                data-testid="show-demo"
+              >
+                Show the demo identity&apos;s meetings
+              </button>
+            )}
+
+            {demoError ? (
+              <p role="alert" className={styles.demoError} data-testid="demo-error">
+                {demoError}
+              </p>
+            ) : null}
+          </section>
+        ) : null}
       </main>
     </div>
   );

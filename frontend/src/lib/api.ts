@@ -130,6 +130,47 @@ export type ScheduleMeetingInput = {
   duration_minutes: number;
 };
 
+/**
+ * The viewer's own Scheduled Meetings that have not arrived yet.
+ *
+ * The shape carries a named list rather than a bare array so that adding the
+ * second section does not change this one's type — and so a response can grow a
+ * field without every caller being edited.
+ */
+export type UpcomingMeetings = {
+  upcoming: Meeting[];
+};
+
+/** The Meetings the viewer hosted, most recently active first. */
+export type RecentMeetings = {
+  recent: Meeting[];
+};
+
+/**
+ * The Demo Identity's two sections, for a reviewer to look at.
+ *
+ * Read-only on the server: nothing about the caller's own identity changes, so
+ * this cannot become a way of *becoming* the Demo Identity and quietly moving a
+ * reviewer's own Meetings onto a shared one.
+ */
+export type DemoDashboard = {
+  display_name: string;
+  upcoming: Meeting[];
+  recent: Meeting[];
+};
+
+export function getUpcomingMeetings(): Promise<UpcomingMeetings> {
+  return apiFetch<UpcomingMeetings>("/api/dashboard/upcoming");
+}
+
+export function getRecentMeetings(): Promise<RecentMeetings> {
+  return apiFetch<RecentMeetings>("/api/dashboard/recent");
+}
+
+export function getDemoDashboard(): Promise<DemoDashboard> {
+  return apiFetch<DemoDashboard>("/api/dashboard/demo");
+}
+
 export function getSession(): Promise<Session> {
   return apiFetch<Session>("/api/session");
 }

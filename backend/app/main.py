@@ -16,7 +16,7 @@ from collections.abc import Callable
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import meetings, session
+from .api import dashboard, meetings, session
 from .config import get_settings
 from .join_codes import generate_join_code
 
@@ -43,6 +43,7 @@ def create_app(join_code_source: Callable[[], str] = generate_join_code) -> Fast
 
     app.include_router(session.router, prefix="/api")
     app.include_router(meetings.router, prefix="/api")
+    app.include_router(dashboard.router, prefix="/api")
 
     @app.get("/api/health")
     def health() -> dict[str, str]:

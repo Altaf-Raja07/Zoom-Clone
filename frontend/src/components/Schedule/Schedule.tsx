@@ -32,12 +32,12 @@ import {
   scheduleMeeting,
 } from "@/lib/api";
 
+import { UNTITLED } from "@/lib/meetings";
+
 import styles from "./Schedule.module.css";
 
-/** Shown in place of a title the host did not write. */
-const UNTITLED = "Untitled meeting";
-
-/** The length that was not asked for, when the API cannot say what went wrong. */
+/**
+ * The length that was not asked for, when the API cannot say what went wrong. */
 const BOOKING_FAILED = "We could not schedule that meeting. Please try again in a moment.";
 
 /**

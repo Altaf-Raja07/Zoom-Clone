@@ -91,6 +91,11 @@
   /* Narrower than the page: a card of text does not get wider because the
      window does. */
   --size-card-max: 36rem;
+  /* The date column of a dashboard meeting row. Sized from the widest thing that
+     goes in it — "Tomorrow" — rather than left to the content, so a row of short
+     dates and a row of long ones line up in the same column and the titles start
+     at the same x. */
+  --size-meeting-when-width: 6.5rem;
 
   /* Motion. */
   --duration-fast: 120ms;

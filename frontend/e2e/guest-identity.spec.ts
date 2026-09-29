@@ -75,6 +75,48 @@ test("two browsers get two different identities", async ({ browser }) => {
   await secondContext.close();
 });
 
+test("a first visit mints one User, not one per request", async ({ page }) => {
+  // The dashboard makes three requests of its own — the session, then the two
+  // sections — and a first visit has no cookie. Every one of those requests
+  // depends on `current_user`, which mints a *new* User for anything arriving
+  // without a cookie, so three cookie-less requests are three Users and the
+  // browser keeps whichever cookie landed last.
+  //
+  // The visible symptom is a returning visitor greeted by a different name: the
+  // greeting came from one request and the cookie that survived was another's.
+  // So this counts Users rather than checking a name, which would only catch the
+  // case where the losing request happened to be the one that answered.
+  await page.goto("/");
+  await expect(page.getByTestId("greeting")).toBeVisible();
+  // Every section has resolved, so every request the dashboard makes has landed.
+  await page.getByTestId("upcoming-empty").waitFor();
+  await page.getByTestId("recent-empty").waitFor();
+
+  // Asking the API who this browser is, four times. Each call goes out with the
+  // cookie the browser ended up keeping, so four identical answers is the shape
+  // a correct run has. It is asked from inside the page so the requests carry
+  // exactly the credentials the dashboard's own carried.
+  const identities = await page.evaluate(async () => {
+    const seen: string[] = [];
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const response = await fetch("http://localhost:8000/api/session", {
+        credentials: "include",
+      });
+      seen.push((await response.json()).id);
+    }
+    return seen;
+  });
+
+  expect(new Set(identities).size).toBe(1);
+
+  // And the same identity survives a reload, which is the other half: a page
+  // that had minted a fresh User per request would still be internally
+  // consistent here, and would only show the bug by losing a name.
+  const before = await page.getByTestId("greeting").textContent();
+  await page.reload();
+  await expect(page.getByTestId("greeting")).toHaveText(before ?? "");
+});
+
 test("the dashboard shows the three primary actions", async ({ page }) => {
   await page.goto("/");
 

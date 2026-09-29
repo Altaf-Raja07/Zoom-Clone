@@ -30,6 +30,11 @@ export MEETLY_CORS_ORIGINS="${MEETLY_CORS_ORIGINS:-http://localhost:3000}"
 # fresh clone needs no manual migration step before it serves.
 "$python" -m alembic upgrade head
 
+# Seeded on every start, not on a first run that has to be detected. The seed is
+# idempotent, and "did this database ever get seeded?" is not a question worth
+# answering when running it again costs nothing.
+"$python" -m app.seed
+
 # `--factory`, because `app.main` exports the builder rather than a module-level
 # `app`: settings are read when the application is built, so importing the
 # module at the top level would capture the environment before the script sets

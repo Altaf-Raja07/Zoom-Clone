@@ -45,7 +45,20 @@ A Meeting with no start time — created on the spot and joinable immediately.
 _Avoid_: Ad-hoc meeting, quick meeting
 
 **Scheduled Meeting**:
-A Meeting with a start time and a duration, listed under Upcoming until it
-begins. Its title and description are optional; its start time is not, and the
-Meeting cannot be joined before it.
+A Meeting with a start time and a duration, listed under Upcoming until that
+time arrives. Its title and description are optional; its start time is not, and
+the Meeting cannot be joined before it. Once its time has passed it leaves
+Upcoming even if nobody has joined it — "begins" means the clock, not the
+attendance — and it is still Recent.
 _Avoid_: Calendar event
+
+**Dashboard sections**:
+Upcoming Meetings (what is coming) and Recent Meetings (what I host). Both are
+filtered on the Host, so neither shows a stranger's Meeting, and both can hold the
+same Meeting: Upcoming is the subset that has not arrived yet.
+_Avoid_: History (Recent is hosted-only, not everything attended)
+
+**Demo Identity**:
+See above — offered only where explicitly initialised. A reviewer reaches it
+through a read-only dashboard control; nobody is signed in as it, and a
+production guest never receives it.

@@ -9,7 +9,7 @@ is worth a rule precisely because nothing can go around it.
 from collections.abc import Callable
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,17 @@ from .models import Meeting, Participant, User, utcnow
 # retries still fails in a millisecond, and a create endpoint should fail rather
 # than spin.
 JOIN_CODE_ATTEMPTS = 10
+
+# How many Meetings each section shows. Both capped, because the asymmetry the
+# first cut of this had — Recent limited, Upcoming not — is not a decision
+# anyone would make on purpose: one section growing without bound while the
+# other silently stops at ten is a list that looks like it has run out.
+#
+# Not in the spec, and a cap the API enforces rather than the browser asking
+# for, so it belongs here or nowhere. Ten is Zoom's own Recent Meetings page
+# size, and it is a page, not a table: nothing here is paginated.
+UPCOMING_MEETINGS_LIMIT = 10
+RECENT_MEETINGS_LIMIT = 10
 
 
 class JoinCodeUnavailable(RuntimeError):
@@ -209,6 +220,91 @@ def has_started(meeting: Meeting) -> bool:
 def is_host(meeting: Meeting, user_id: str) -> bool:
     """Authority is derived from the meeting, never from a stored role."""
     return meeting.host_id == user_id
+
+
+def list_upcoming_meetings(
+    session: Session, host_id: str, limit: int = UPCOMING_MEETINGS_LIMIT
+) -> list[Meeting]:
+    """The Scheduled Meetings this User hosts that have not arrived yet.
+
+    Filtered on `host_id` alone, like Recent Meetings below, because Upcoming and
+    Recent are two answers to the same question — "what of mine is coming, and
+    what have I already done" — and one answering "everything in the app" would
+    mean a guest sees a stranger's private booking on arrival.
+
+    The start time has to be in the future, which is one comparison against the
+    clock rather than a stored flag. It is *not* `has_started`: a Meeting whose
+    time has passed but which nobody has joined is no longer upcoming, and it is
+    still open — the gate belongs to the door that admits, not to this list.
+
+    GLOSSARY.md says a Scheduled Meeting is "listed under Upcoming until it
+    begins", and this is what that sentence means in code: until its *time*
+    arrives, not until somebody joins. A Meeting that is overdue and unstarted is
+    in neither section's future and is still Recent, because Recent answers a
+    different question (see `list_recent_meetings`).
+    """
+    return list(
+        session.scalars(
+            select(Meeting)
+            .where(
+                Meeting.host_id == host_id,
+                Meeting.scheduled_start_at.is_not(None),
+                Meeting.scheduled_start_at > utcnow(),
+            )
+            .order_by(Meeting.scheduled_start_at.asc(), Meeting.id.asc())
+            .limit(limit)
+        )
+    )
+
+
+def list_recent_meetings(session: Session, host_id: str) -> list[Meeting]:
+    """The Meetings this User hosted, most recently active first.
+
+    Hosted only, and never a hosted-or-attended union: that union was considered
+    and rejected in favour of one filter and no deduplication, because
+    participation history is a later addition and a JOIN here would make
+    "Recent" mean two different things depending on the row (ADR-0004).
+
+    Ordered by *recency of activity*, not by the scheduled start time. The start
+    time is the wrong answer twice over: it is null for every Instant Meeting, so
+    an Instant Meeting — the thing a host makes most often — would sort nowhere;
+    and for a Scheduled Meeting it describes a plan rather than anything that
+    happened.
+
+    The recency is therefore the later of `created_at` and `started_at`, falling
+    back to `created_at`. Written as an explicit CASE rather than as
+    `COALESCE(started_at, created_at)`, which is the *first* non-null value and
+    not the later one — the two are identical whenever a Meeting is created
+    before it starts, which is most of them, so the mistake would be invisible
+    right up until a Meeting seeded or imported with a start time in the past.
+
+    One consequence is a regression test rather than a bug: a Scheduled Meeting
+    whose start time has passed and which *nobody ever started* has a null
+    `started_at`, so it sorts by `created_at` and can fall below a freshly made
+    Instant Meeting. That is correct — nobody started it — and the test that
+    asserts it exists so nobody "fixes" it later.
+
+    `id` breaks ties, so two Meetings created in the same instant come back in
+    the same order every time rather than in whatever order the database felt
+    like.
+
+    Capped at `RECENT_MEETINGS_LIMIT` and *not* paginated: a host with four
+    hundred Meetings is not a case this app has, and a "show more" control on a
+    section that shows ten rows is a promise the dashboard does not need to keep.
+    """
+    recency = case(
+        (Meeting.started_at.is_(None), Meeting.created_at),
+        (Meeting.started_at > Meeting.created_at, Meeting.started_at),
+        else_=Meeting.created_at,
+    )
+    return list(
+        session.scalars(
+            select(Meeting)
+            .where(Meeting.host_id == host_id)
+            .order_by(recency.desc(), Meeting.id.asc())
+            .limit(RECENT_MEETINGS_LIMIT)
+        )
+    )
 
 
 def list_present_participants(session: Session, meeting_id: str) -> list[Participant]:

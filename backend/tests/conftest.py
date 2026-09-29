@@ -9,6 +9,7 @@ a real browser does, so a "returning visitor" is simply the same session
 making a second request.
 """
 
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -28,6 +29,7 @@ from app.join_codes import generate_join_code  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.models import session_factory_for  # noqa: E402
 from app.repository import get_meeting_by_join_code  # noqa: E402
+from app.seed import seed  # noqa: E402
 
 
 def migrate_to_head() -> None:
@@ -145,6 +147,39 @@ def end_meeting(app):
             session.commit()
 
     return end
+
+
+@pytest.fixture()
+def seeded(app):
+    """An application whose database has been through the first-run seed.
+
+    Reached through the seed's own entry point rather than by arranging rows,
+    because "seeding is idempotent" is a claim about that code path and a test
+    that built the rows itself would be asserting against its own fixture.
+    """
+    with session_factory_for(get_engine())() as session:
+        seed(session)
+    return app
+
+
+@pytest.fixture()
+def count_rows():
+    """How many rows of each table a database holds.
+
+    Counting rows directly rather than inferring counts from HTTP responses,
+    because "seeding twice does not duplicate anything" is a claim about every
+    table at once — including the two with no endpoint — and a dashboard that
+    happened to deduplicate on the way out would hide a seed that had doubled.
+    """
+
+    def count(database_path: Path) -> dict[str, int]:
+        with sqlite3.connect(database_path) as connection:
+            return {
+                table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                for table in ("users", "meetings", "participants")
+            }
+
+    return count
 
 
 @pytest.fixture()
