@@ -76,6 +76,10 @@ multi-participant video grid, host-tool panel contents, and every hover state.
 - **We build only Topic, Description, When, Duration** (per the assignment) and
   omit the rest entirely. Rendering a truncated version of the full dialog is
   worse than not rendering it.
+- The observed layout puts the form in a right-hand column beside a left
+  settings rail (Home / My Products / Meetings / …). Meetly has no settings rail
+  and does not add one, so the form is a single column — the fields are the
+  observation, the arrangement is ours (ADR-0003).
 - Also visible: amber warning banners for the 40-minute limit and for
   unconnected-calendar invitees; a blue Save button and a plain Cancel.
 

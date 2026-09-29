@@ -21,6 +21,7 @@ import { useEffect, useState } from "react";
 import {
   ApiError,
   Meeting,
+  explainApiError,
   getMeetingByJoinCode,
   getSession,
   isJoinCodeShape,
@@ -38,19 +39,13 @@ type Props = {
  * Why the meeting could not be entered, in the words of someone who was told a
  * number by a colleague and got it slightly wrong.
  *
- * The API's own `detail` is preferred, because it is written for the person
- * rather than for the developer. The fallbacks cover the two failures it cannot
- * describe: a network that never answered, and a response with no detail on it.
+ * The 5xx sentence is this screen's own — "we could not join that meeting" and
+ * "we could not schedule one" are different reactions — while which of the
+ * three cases applies is decided by `explainApiError`, which every screen
+ * needing it shares. The API's own `detail` is preferred either way, because it
+ * is written for the person rather than for the developer.
  */
-function messageFor(cause: unknown): string {
-  if (cause instanceof ApiError) {
-    if (cause.detail) return cause.detail;
-    if (cause.status >= 500) {
-      return "We could not join that meeting. Please try again in a moment.";
-    }
-  }
-  return "We could not reach the server. Please try again.";
-}
+const SERVER_FAULT = "We could not join that meeting. Please try again in a moment.";
 
 export function Join({ joinCode }: Props) {
   const router = useRouter();
@@ -97,7 +92,7 @@ export function Join({ joinCode }: Props) {
       meeting = await getMeetingByJoinCode(code);
     } catch (cause: unknown) {
       setJoining(false);
-      setError(messageFor(cause));
+      setError(explainApiError(cause, SERVER_FAULT));
       return;
     }
 

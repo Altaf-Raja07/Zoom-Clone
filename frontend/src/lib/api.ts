@@ -61,6 +61,32 @@ export type Session = {
 };
 
 /**
+ * The sentence for a request that never reached the server.
+ *
+ * One string, and not a parameter, because it means the same thing wherever it
+ * appears: no reply, so nothing was decided. The wording that *does* depend on
+ * the screen — "we could not join that meeting" rather than "we could not
+ * schedule one" — is the 5xx case, and that one is passed in.
+ */
+export const UNREACHABLE = "We could not reach the server. Please try again.";
+
+/**
+ * The sentence a person reads when a request failed.
+ *
+ * The API's own `detail` wins, because it is written for the person rather than
+ * for the developer. The fallbacks cover the two failures the API cannot
+ * describe: a server that answered with a 5xx, and a network that never
+ * answered at all.
+ */
+export function explainApiError(cause: unknown, serverFault: string): string {
+  if (cause instanceof ApiError) {
+    if (cause.detail) return cause.detail;
+    if (cause.status >= 500) return serverFault;
+  }
+  return UNREACHABLE;
+}
+
+/**
  * A Meeting, as the API describes it.
  *
  * `meeting_id` is the grouped form a host reads aloud and `join_code` the stored
@@ -74,11 +100,34 @@ export type Meeting = {
   join_code: string;
   invite_path: string;
   title: string | null;
+  description: string | null;
   scheduled_start_at: string | null;
+  duration_minutes: number | null;
   started_at: string | null;
   created_at: string;
   is_host: boolean;
   host: { id: string; display_name: string };
+};
+
+/**
+ * What a host books a Meeting with.
+ *
+ * `scheduled_start_at` is an instant with its offset attached, not a wall-clock
+ * reading: the browser is the only thing here that knows which time zone the
+ * person in front of it is in, so it resolves the date and time they picked
+ * against their own clock and sends the moment. Time-zone selection is out of
+ * scope, and the API refuses a timestamp that carries no zone rather than
+ * guessing one.
+ *
+ * The title and description are optional, and sent as `null` when left blank,
+ * so that a field nobody filled in is stored as absence rather than as a
+ * string of spaces every later screen would have to know to hide.
+ */
+export type ScheduleMeetingInput = {
+  title: string | null;
+  description: string | null;
+  scheduled_start_at: string;
+  duration_minutes: number;
 };
 
 export function getSession(): Promise<Session> {
@@ -87,6 +136,13 @@ export function getSession(): Promise<Session> {
 
 export function createMeeting(): Promise<Meeting> {
   return apiFetch<Meeting>("/api/meetings", { method: "POST" });
+}
+
+export function scheduleMeeting(input: ScheduleMeetingInput): Promise<Meeting> {
+  return apiFetch<Meeting>("/api/meetings/scheduled", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 export function getMeeting(meetingUuid: string): Promise<Meeting> {

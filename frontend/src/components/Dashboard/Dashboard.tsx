@@ -2,10 +2,11 @@
  * The landing dashboard.
  *
  * Ticket 01 established one thing end to end: a first-time visitor arrives with
- * no login step and is greeted by name. This ticket makes two of the three
- * primary actions real — New Meeting creates a Meeting and walks the host into
- * the room, and Join Meeting opens the join screen. The Upcoming / Recent
- * sections arrive with the dashboard ticket.
+ * no login step and is greeted by name. Since then all three primary actions
+ * have been made real — New Meeting creates a Meeting and walks the host into
+ * the room, Join Meeting opens the join screen, and Schedule Meeting opens a
+ * form that books one for later. The Upcoming / Recent sections arrive with the
+ * dashboard ticket.
  */
 
 "use client";
@@ -77,8 +78,10 @@ export function Dashboard() {
       router.push("/join");
       return;
     }
-    // Schedule is its own ticket; saying nothing beats a button that pretends.
-    setError(`${PRIMARY_ACTIONS.find((a) => a.key === action)?.label} is not built yet.`);
+    // Pushed rather than linked for the same reason again: booking a Meeting is
+    // a form the host fills in, and Back out of it should land on the dashboard
+    // that offered the action rather than on a fresh copy of the app.
+    router.push("/schedule");
   }
 
   return (

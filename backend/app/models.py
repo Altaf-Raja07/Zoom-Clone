@@ -59,7 +59,14 @@ class Base(DeclarativeBase):
     pass
 
 
-def _utcnow() -> datetime:
+def utcnow() -> datetime:
+    """The current instant, in UTC.
+
+    Named rather than private because the *rules* need it too — "has this
+    Meeting's start time arrived" is a question about the clock, and reading it
+    from one function means a test-freezing seam and a column default could not
+    drift apart.
+    """
     return datetime.now(UTC)
 
 
@@ -73,7 +80,7 @@ class User(Base):
     )
     display_name: Mapped[str] = mapped_column(String(80), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        UtcDateTime, nullable=False, default=_utcnow
+        UtcDateTime, nullable=False, default=utcnow
     )
 
 
@@ -108,7 +115,7 @@ class Meeting(Base):
         UtcDateTime, nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        UtcDateTime, nullable=False, default=_utcnow
+        UtcDateTime, nullable=False, default=utcnow
     )
 
 
@@ -135,7 +142,7 @@ class Participant(Base):
         String(36), ForeignKey("users.id"), nullable=False, index=True
     )
     joined_at: Mapped[datetime] = mapped_column(
-        UtcDateTime, nullable=False, default=_utcnow
+        UtcDateTime, nullable=False, default=utcnow
     )
     left_at: Mapped[datetime | None] = mapped_column(
         UtcDateTime, nullable=True

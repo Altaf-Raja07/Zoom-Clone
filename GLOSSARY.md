@@ -45,6 +45,7 @@ A Meeting with no start time — created on the spot and joinable immediately.
 _Avoid_: Ad-hoc meeting, quick meeting
 
 **Scheduled Meeting**:
-A Meeting with a title, start time and duration, listed under Upcoming until it
-begins.
+A Meeting with a start time and a duration, listed under Upcoming until it
+begins. Its title and description are optional; its start time is not, and the
+Meeting cannot be joined before it.
 _Avoid_: Calendar event
