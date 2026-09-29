@@ -28,13 +28,13 @@ function tomorrow(): string {
 /** The schedule form, filled in as a host would. */
 async function bookAMeeting(
   page: Page,
-  fields: { title?: string; description?: string; time?: string } = {},
+  fields: { title?: string; description?: string; date?: string; time?: string } = {},
 ) {
   await page.getByTestId("schedule-title").fill(fields.title ?? "Design review");
   await page
     .getByTestId("schedule-description")
     .fill(fields.description ?? "Walk through the schedule ticket");
-  await page.getByTestId("schedule-date").fill(tomorrow());
+  await page.getByTestId("schedule-date").fill(fields.date ?? tomorrow());
   await page.getByTestId("schedule-time").fill(fields.time ?? "14:30");
   await page.getByTestId("schedule-duration").selectOption("45");
   await page.getByTestId("schedule-submit").click();
@@ -139,6 +139,48 @@ test("the invite link can be followed before the meeting begins", async ({
     "That meeting has not started yet. Try again when it is time to join.",
   );
   await expect(guestPage).toHaveURL(/\/join\/\d{11}$/);
+
+  await guest.close();
+  await host.close();
+});
+
+test("a scheduled meeting lets a guest in once its time has arrived", async ({
+  browser,
+}) => {
+  const host = await browser.newContext();
+  const hostPage = await host.newPage();
+  await hostPage.goto("/schedule");
+
+  // Booked for a time that has already passed, which is what the API is for: the
+  // gate is one comparison against the clock, and a start time in the past
+  // answers it by opening the Meeting. So the admitting side is reachable in a
+  // test without waiting an hour for the refusing side's twin to expire — the
+  // alternative was leaving the whole gate unproven in a browser.
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const pad = (part: number) => String(part).padStart(2, "0");
+  const day = [
+    yesterday.getFullYear(),
+    pad(yesterday.getMonth() + 1),
+    pad(yesterday.getDate()),
+  ].join("-");
+
+  await bookAMeeting(hostPage, { date: day, time: "09:00" });
+  const inviteLink =
+    (await hostPage.getByTestId("invite-path").textContent()) ?? "";
+
+  const guest = await browser.newContext();
+  const guestPage = await guest.newPage();
+  await guestPage.goto(inviteLink);
+  await guestPage.getByTestId("display-name").fill("Priya");
+  await guestPage.getByTestId("join-button").click();
+
+  // The same join screen that refused this Meeting on the other side of its
+  // start time. Neither test hard-codes the other's half, so a gate that always
+  // refused — or always admitted — would fail one of them.
+  await expect(guestPage).toHaveURL(/\/room\/[0-9a-f-]{36}$/);
+  await expect(guestPage.getByTestId("host-badge")).toHaveText(/^Hosted by \S+/);
+  await expect(guestPage.getByTestId("join-error")).toHaveCount(0);
 
   await guest.close();
   await host.close();

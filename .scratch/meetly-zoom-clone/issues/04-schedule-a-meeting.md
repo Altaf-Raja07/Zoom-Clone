@@ -18,8 +18,8 @@ form is not a truncated version of Zoom's larger dialog.
 
 **Blocked by:** 01 (Project spine and first-run guest identity).
 
-**Status:** done, except the Upcoming list and the browser check of the
-admitting side (see Not done here).
+**Status:** done, except the Upcoming list, which is ticket 05 (see Not done
+here).
 
 - [x] A Meeting can be created with a title, a description, a date, a time, and a duration
 - [x] A Scheduled Meeting receives an auto-generated Invite Link, usable before the Meeting begins
@@ -70,11 +70,13 @@ admitting side (see Not done here).
 
 ## Not done here
 
-- **Nothing in a browser test waits for a start time to pass.** The gate's
-  admitting side is asserted at the API seam, where a Meeting can be booked a
-  minute into the past instead of a test sleeping for an hour. What a browser
-  does show is the refusing side, through the real join screen, because a
-  sentence about a meeting that has not started is the part a person reads.
+- **The gate is now proven in a browser from both sides**, and it was not, until
+  the review asked. A test books a Meeting for a time already gone and follows
+  the Invite Link into the room; another books one for tomorrow and is refused.
+  Neither asserts the other's answer, so a gate that always refused or always
+  admitted would fail one of them. This was only reachable because the API
+  treats a start time in the past as open rather than as invalid — a second
+  rule refusing past times would have made this untestable without waiting.
 - **A booked Meeting appears nowhere in the app yet.** Upcoming is ticket 05,
   so the confirmation is the only place one is visible: the dashboard gained a
   working Schedule action and nothing else, and a host who closes the
