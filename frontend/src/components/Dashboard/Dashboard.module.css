@@ -125,6 +125,13 @@
   box-shadow: var(--shadow-sm);
 }
 
+.actionButton:disabled {
+  background: var(--action-disabled-bg);
+  color: var(--action-disabled-text);
+  cursor: progress;
+  box-shadow: none;
+}
+
 .actionPrimary {
   border-color: var(--action-primary-bg);
   background: var(--action-primary-bg);

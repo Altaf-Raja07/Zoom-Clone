@@ -11,19 +11,26 @@ the assignment says will be evaluated, so migrations are the only way the
 schema comes into being — including in the tests, which run them for real.
 """
 
+from collections.abc import Callable
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import session
+from .api import meetings, session
 from .config import get_settings
+from .join_codes import generate_join_code
 
 __all__ = ["create_app"]
 
 
-def create_app() -> FastAPI:
+def create_app(join_code_source: Callable[[], str] = generate_join_code) -> FastAPI:
     settings = get_settings()
 
     app = FastAPI(title="Meetly", version="0.1.0")
+
+    # Read through `app.state` by a dependency, so the source of Meeting IDs can
+    # be replaced in tests without any of them reaching below the HTTP seam.
+    app.state.join_code_source = join_code_source
 
     # CORS is configured from a single env-var origin allowlist, and only here.
     app.add_middleware(
@@ -35,6 +42,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(session.router, prefix="/api")
+    app.include_router(meetings.router, prefix="/api")
 
     @app.get("/api/health")
     def health() -> dict[str, str]:

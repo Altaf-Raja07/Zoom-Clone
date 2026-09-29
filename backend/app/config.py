@@ -68,8 +68,24 @@ class Settings:
                 os.environ.get("MEETLY_DATABASE_PATH", DEFAULT_DATABASE_PATH)
             ),
             cookie_secret=os.environ.get("MEETLY_COOKIE_SECRET", DEFAULT_COOKIE_SECRET),
-            cors_origins=[origin.strip() for origin in origins.split(",") if origin.strip()],
+            cors_origins=[
+                _with_scheme(origin.strip())
+                for origin in origins.split(",")
+                if origin.strip()
+            ],
         )
+
+
+def _with_scheme(origin: str) -> str:
+    """Give a scheme-less allowlist entry the one it can only have meant.
+
+    Deploy platforms hand out a host (`meetly-web.onrender.com`), not an origin,
+    and an allowlist entry without a scheme matches nothing — so CORS would
+    refuse every request from the real frontend while localhost kept working
+    fine. Assuming https is the only safe guess: a scheme-less entry is never a
+    development origin, and nothing is served over plain http in a deployment.
+    """
+    return origin if "://" in origin else f"https://{origin}"
 
 
 def _is_local_origin(origin: str) -> bool:

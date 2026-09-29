@@ -41,3 +41,43 @@ export type Session = {
   display_name: string;
   is_new: boolean;
 };
+
+/**
+ * A Meeting, as the API describes it.
+ *
+ * `meeting_id` is the grouped form a host reads aloud and `join_code` the stored
+ * form it comes from. The grouping is done by the backend on purpose — it is a
+ * product convention, and a convention the frontend invents is a convention the
+ * frontend can get wrong.
+ */
+export type Meeting = {
+  id: string;
+  meeting_id: string;
+  join_code: string;
+  invite_path: string;
+  title: string | null;
+  scheduled_start_at: string | null;
+  started_at: string | null;
+  created_at: string;
+  is_host: boolean;
+  host: { id: string; display_name: string };
+};
+
+export function createMeeting(): Promise<Meeting> {
+  return apiFetch<Meeting>("/api/meetings", { method: "POST" });
+}
+
+export function getMeeting(meetingId: string): Promise<Meeting> {
+  return apiFetch<Meeting>(`/api/meetings/${meetingId}`);
+}
+
+/**
+ * The Invite Link as an absolute URL.
+ *
+ * The API returns a path rather than a full URL: it does not know the address
+ * the browser is on, and a link that hardcoded a hostname would break the day
+ * the app was deployed somewhere else.
+ */
+export function absoluteInviteLink(invitePath: string): string {
+  return new URL(invitePath, window.location.origin).toString();
+}

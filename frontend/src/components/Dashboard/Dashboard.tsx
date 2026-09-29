@@ -1,16 +1,19 @@
 /**
  * The landing dashboard.
  *
- * For this ticket it establishes one thing end to end: a first-time visitor
- * arrives with no login step and is greeted by name. The three primary actions
- * and the Upcoming / Recent sections arrive with the dashboard ticket.
+ * Ticket 01 established one thing end to end: a first-time visitor arrives with
+ * no login step and is greeted by name. This ticket makes the first of the
+ * three primary actions real — New Meeting creates a Meeting and walks the host
+ * into the room. The Upcoming / Recent sections arrive with the dashboard
+ * ticket.
  */
 
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { ApiError, Session, apiFetch } from "@/lib/api";
+import { ApiError, Session, apiFetch, createMeeting } from "@/lib/api";
 
 import styles from "./Dashboard.module.css";
 
@@ -20,9 +23,13 @@ const PRIMARY_ACTIONS = [
   { key: "schedule", label: "Schedule Meeting" },
 ] as const;
 
+type ActionKey = (typeof PRIMARY_ACTIONS)[number]["key"];
+
 export function Dashboard() {
+  const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -44,6 +51,30 @@ export function Dashboard() {
       cancelled = true;
     };
   }, []);
+
+  async function startMeeting() {
+    setStarting(true);
+    setError(null);
+    try {
+      const meeting = await createMeeting();
+      // Pushing rather than linking, so Back returns to a dashboard that still
+      // has the session on it rather than re-fetching the whole app.
+      router.push(`/room/${meeting.id}`);
+    } catch {
+      setStarting(false);
+      setError("We could not start a meeting. Please try again.");
+    }
+  }
+
+  function onAction(action: ActionKey) {
+    if (action === "new") {
+      void startMeeting();
+      return;
+    }
+    // Join and Schedule are their own tickets; saying nothing beats a button
+    // that pretends.
+    setError(`${PRIMARY_ACTIONS.find((a) => a.key === action)?.label} is not built yet.`);
+  }
 
   return (
     <div>
@@ -94,13 +125,15 @@ export function Dashboard() {
             <button
               key={action.key}
               type="button"
+              disabled={starting && action.key === "new"}
               className={
                 action.key === "new"
                   ? `${styles.actionButton} ${styles.actionPrimary}`
                   : styles.actionButton
               }
+              onClick={() => onAction(action.key)}
             >
-              {action.label}
+              {starting && action.key === "new" ? "Starting…" : action.label}
             </button>
           ))}
         </div>

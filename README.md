@@ -3,16 +3,21 @@
 A Zoom-style conferencing platform. This repository is the product spec, the
 architecture decisions behind it, and the implementation.
 
-**Current state:** ticket 01, the project spine. A first-time visitor opens the
-app, is given a real `User` row through a signed cookie, and is greeted on the
-dashboard by their Display Name. There is no signup and no login step. The
-meeting workflows are not built yet.
+**Current state:** tickets 01 and 02. A first-time visitor opens the app, is
+given a real `User` row through a signed cookie, and is greeted on the dashboard
+by their Display Name. There is no signup and no login step. Clicking New
+Meeting creates a Meeting and walks the host into its room, with an eleven-digit
+Meeting ID grouped 3-4-4 and an Invite Link that reaches the clipboard in one
+action. Joining, scheduling, the pre-join screen and the live room are not built
+yet.
 
 - `SPEC.md` — the product spec and the implementation decisions behind it
 - `GLOSSARY.md` — the domain language, and what to call things
 - `docs/adr/` — the decisions that were reversible and the reasoning
 - `docs/zoom-reference-notes.md` — what was observed in the supplied
   screenshots, and what was not
+- `docs/deploying-to-render.md` — how the deployed app is put together, and the
+  one free-tier limitation worth knowing before you start
 - `backend/` — FastAPI + SQLAlchemy + SQLite
 - `frontend/` — Next.js, CSS Modules, three-layer design tokens
 

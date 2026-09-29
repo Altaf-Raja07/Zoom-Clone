@@ -31,11 +31,12 @@ next-env.d.ts
 .vscode/
 *.swp
 
-# Playwright
-/test-results/
-/playwright-report/
-/blob-report/
-/playwright/.cache/
+# Playwright — anchored nowhere, because the frontend's own runs write into
+# frontend/test-results/.
+test-results/
+playwright-report/
+blob-report/
+.playwright/.cache/
 
 # Note: .scratch/ is intentionally NOT ignored. The tickets have no tracker to
 # live in yet, so the repo is currently their only versioned home.

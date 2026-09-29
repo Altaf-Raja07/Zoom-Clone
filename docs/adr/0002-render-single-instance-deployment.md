@@ -27,3 +27,20 @@ better product but needs a card and is the least documented of the three.
   meeting-still-alive signal.
 - **Free tier idles aggressively.** The first visitor after a quiet period
   absorbs a cold start. Accepted for a one-day build; a card would remove it.
+- **Free tier has no persistent disk.** A mounted disk is a paid-plan feature,
+  so on the free plan the SQLite file lives on the instance's ephemeral
+  filesystem: a *restart* keeps it, a *redeploy* loses it, and every visitor
+  comes back as a new guest. `MEETLY_DATABASE_PATH` in `render.yaml` points at
+  the disk's mount point precisely so that uncommenting the `disk:` block and
+  moving to the Starter plan is the whole of the fix — no application code
+  differs between the two cases. See `docs/deploying-to-render.md`.
+
+## Correction, ticket 02
+
+This ADR originally said the frontend is a *static* Next.js build. It is not,
+and cannot be: the room is `/room/<meeting id>`, a dynamic route whose ids are
+minted at runtime, so there is no enumerable set of pages to export ahead of
+time. The frontend is therefore a second Render web service running
+`next start`. Two services rather than one, because the browser talks to
+FastAPI directly (SPEC.md, Network topology) and so the API cannot also be the
+origin a browser loads the app from.

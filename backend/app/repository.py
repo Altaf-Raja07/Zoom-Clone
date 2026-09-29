@@ -6,11 +6,25 @@ encode actually hold: the `left_at IS NULL` filter for "who is in this room"
 is worth a rule precisely because nothing can go around it.
 """
 
+from collections.abc import Callable
+
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .identity import new_display_name
+from .join_codes import generate_join_code
 from .models import Meeting, Participant, User
+
+# How many Meeting IDs to try before giving up. Eleven digits is a big space, so
+# exhausting this means something is deeply wrong — an order of magnitude of
+# retries still fails in a millisecond, and a create endpoint should fail rather
+# than spin.
+JOIN_CODE_ATTEMPTS = 10
+
+
+class JoinCodeUnavailable(RuntimeError):
+    """Every Meeting ID offered was already taken."""
 
 
 def create_user(session: Session, display_name: str | None = None) -> User:
@@ -19,6 +33,44 @@ def create_user(session: Session, display_name: str | None = None) -> User:
     session.add(user)
     session.commit()
     return user
+
+
+def create_instant_meeting(
+    session: Session,
+    host: User,
+    code_source: Callable[[], str] = generate_join_code,
+) -> Meeting:
+    """A Meeting with no title and no start time, and a Meeting ID nobody has.
+
+    An Instant Meeting is defined by that absence rather than by a `kind`
+    column, so there is nothing here to set — the nulls are the record
+    (ADR-0004).
+
+    Uniqueness of the Meeting ID is the interesting part. The obvious version —
+    generate, insert, let a unique-violation propagate — turns a birthday
+    problem into a user-visible 500, and this code is generated inside a request
+    where nobody is watching. So a code already in use is simply drawn again. The
+    `IntegrityError` arm is not belt-and-braces: two hosts creating at the same
+    moment both pass the "is it taken?" check, and only the database can settle
+    which of them wins.
+    """
+    for _ in range(JOIN_CODE_ATTEMPTS):
+        join_code = code_source()
+        if get_meeting_by_join_code(session, join_code) is not None:
+            continue
+
+        meeting = Meeting(join_code=join_code, host_id=host.id)
+        session.add(meeting)
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            continue
+        return meeting
+
+    raise JoinCodeUnavailable(
+        f"Could not find a free Meeting ID in {JOIN_CODE_ATTEMPTS} attempts."
+    )
 
 
 def get_user(session: Session, user_id: str | None) -> User | None:

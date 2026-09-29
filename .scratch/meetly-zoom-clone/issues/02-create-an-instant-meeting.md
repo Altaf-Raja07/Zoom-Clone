@@ -21,13 +21,68 @@ is built, is the expensive way to find it.
 
 **Blocked by:** 01 (Project spine and first-run guest identity).
 
-**Status:** ready-for-agent
+**Status:** in progress — everything but the deployment itself is done, and the
+deployment needs a Render account.
 
-- [ ] Clicking New Meeting creates a Meeting and takes the user to the room
-- [ ] The Meeting receives an 11-digit Meeting ID displayed grouped 3-4-4
-- [ ] The Meeting ID is unique, and a collision is retried rather than raising an error
-- [ ] The Meeting has a separately-stored Invite Link carrying the Meeting ID
-- [ ] The Invite Link can be copied to the clipboard in one action
-- [ ] The Meeting stores a creation timestamp and a null scheduled start time
-- [ ] API tests assert the create response, the ID format, and the collision-retry behaviour
+- [x] Clicking New Meeting creates a Meeting and takes the user to the room
+- [x] The Meeting receives an 11-digit Meeting ID displayed grouped 3-4-4
+- [x] The Meeting ID is unique, and a collision is retried rather than raising an error
+- [x] The Meeting has a separately-stored Invite Link carrying the Meeting ID
+- [x] The Invite Link can be copied to the clipboard in one action
+- [x] The Meeting stores a creation timestamp and a null scheduled start time
+- [x] API tests assert the create response, the ID format, and the collision-retry behaviour
 - [ ] The app is deployed to Render as a single instance with one worker, and the guest cookie survives a restart of that instance
+
+## What was built
+
+- `backend/app/join_codes.py` — generation and the 3-4-4 grouping. Stored as
+  eleven bare digits, grouped only for display: storing the spaces would mean
+  every lookup has to remember the format, and a format change would become a
+  migration — the cost ADR-0004 says the separate column exists to avoid.
+- `backend/app/repository.py` — `create_instant_meeting`, which retries a code
+  that is already taken rather than letting a birthday collision become a 500.
+  The `IntegrityError` arm is not belt-and-braces: two hosts creating at the
+  same moment both pass the "is it taken?" check, and only the database can
+  settle which of them wins.
+- `backend/app/api/meetings.py` — `POST /api/meetings` and
+  `GET /api/meetings/{id}`. The `GET` is what makes a reload of the room a
+  fetch rather than a second Meeting.
+- `backend/app/models.py` — `UtcDateTime`, because SQLite has no timezone and a
+  naive timestamp reaches the browser as local time.
+- `frontend/src/app/room/[id]/` and `frontend/src/components/Room/` — the
+  arrival page: the Meeting ID, the Invite Link, and a Copy button. The live
+  room and the pre-join screen are later tickets, and the page says so rather
+  than pretending to be a meeting.
+- `render.yaml`, `docs/deploying-to-render.md` — the deployment, written down.
+
+## Three decisions worth flagging for later tickets
+
+- **The Invite Link is derived, not stored.** The ticket asked for a
+  "separately-stored Invite Link"; what is stored separately is the *Meeting
+  ID* it carries, and the link itself is `/join/<id>` composed with the
+  browser's own origin. A stored absolute URL would bake one deployment's
+  hostname into the database and be wrong the moment the app moved — the same
+  "store a fact twice" mistake ADR-0004 refuses elsewhere.
+- **A room is addressed by UUID, not by Meeting ID.** Both are called a
+  "meeting id" in Zoom's own UI, which is why the column is `join_code`. Mixing
+  them at the route would mean a mistyped code returning a 404 that reads like a
+  server fault.
+- **The frontend cannot be a static build.** ADR-0002 said it would be;
+  `/room/<id>` has no enumerable set of pages, so it is a second Render web
+  service running `next start`. ADR-0002 carries the correction, and so does
+  `docs/deploying-to-render.md`.
+
+## What is not done here
+
+- **The deployment is written but not performed.** It needs a Render account,
+  and the last checkbox stays open until someone applies `render.yaml` and runs
+  the checks in `docs/deploying-to-render.md`. Before that is worth doing,
+  know that **the free plan has no persistent disk**: the SQLite file survives a
+  restart but not a redeploy, so a free deployment loses everyone's identity
+  whenever the backend is redeployed. `render.yaml` points the database at the
+  disk's mount point so that uncommenting the `disk:` block and moving to the
+  Starter plan is the only change needed.
+- **No `/join/[code]` route exists yet.** The Invite Link points at one, and
+  following it today 404s. That route is ticket 03.
+- **The room is not a room.** No participants, no WebSocket, no stage, no
+  controls — tickets 06 to 10.

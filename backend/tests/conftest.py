@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
@@ -22,6 +23,7 @@ ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
 # between tests without each test reaching into `app` itself.
 from app.config import reset_settings  # noqa: E402
 from app.db import reset_engine  # noqa: E402
+from app.join_codes import generate_join_code  # noqa: E402
 from app.main import create_app  # noqa: E402
 
 
@@ -44,6 +46,9 @@ class Session:
     def get(self, url: str):
         return self._client.get(url)
 
+    def post(self, url: str):
+        return self._client.post(url)
+
     def set_cookie(self, name: str, value: str) -> None:
         """Plant a cookie, as a browser would when the server sets one."""
         self._client.cookies.set(name, value)
@@ -51,25 +56,48 @@ class Session:
     def close(self) -> None:
         self._client.__exit__(None, None, None)
 
+    def __enter__(self) -> "Session":
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.close()
+
 
 @pytest.fixture()
-def app(database_path: Path, monkeypatch: pytest.MonkeyPatch):
+def app_factory(database_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Builds the real application, with the ability to plant a join-code source.
+
+    Uniqueness of the Meeting ID is a promise about generated values, so proving
+    it needs a generator that collides on purpose — and that is a fact about the
+    world the application runs in, not a fact about how it is put together. So
+    the seam is the application builder, not the repository: a test can choose
+    which codes are drawn, and still has to go through HTTP to see the result.
+    """
+
+    def build(join_code_source=generate_join_code) -> FastAPI:
+        monkeypatch.setenv("MEETLY_DATABASE_PATH", str(database_path))
+        monkeypatch.setenv("MEETLY_COOKIE_SECRET", "test-secret-not-a-real-one")
+        monkeypatch.setenv("MEETLY_CORS_ORIGINS", "http://localhost:3000")
+
+        reset_settings()
+        reset_engine()
+        migrate_to_head()
+        return create_app(join_code_source=join_code_source)
+
+    yield build
+    reset_engine()
+    reset_settings()
+
+
+@pytest.fixture()
+def app(app_factory):
     """The real application, against a temporary database file migrated for real.
 
     Migrations rather than `create_all`, so every test runs against the same
     schema a deployment would get. A test harness that quietly built the tables
     from the ORM would pass even if the migrations were wrong.
     """
-    monkeypatch.setenv("MEETLY_DATABASE_PATH", str(database_path))
-    monkeypatch.setenv("MEETLY_COOKIE_SECRET", "test-secret-not-a-real-one")
-    monkeypatch.setenv("MEETLY_CORS_ORIGINS", "http://localhost:3000")
-
-    reset_settings()
-    reset_engine()
-    migrate_to_head()
-    yield create_app()
-    reset_engine()
-    reset_settings()
+    return app_factory()
 
 
 @pytest.fixture()

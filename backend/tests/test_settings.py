@@ -75,3 +75,30 @@ def test_the_placeholder_secret_is_accepted_for_local_development(
     )
 
     assert TestClient(app).get("/api/health").status_code == 200
+
+
+def test_a_bare_hostname_in_the_allowlist_is_read_as_an_https_origin(database_path, tmp_path):
+    """A host with no scheme, which is what a deploy platform hands you.
+
+    Refusing to guess here would not fail at deploy time; it would fail as every
+    request from the real frontend being quietly turned away by CORS, which
+    looks exactly like identity being broken.
+    """
+    app = application_serving("a-real-private-value", "meetly-web.onrender.com", tmp_path / "c")
+
+    from app.config import get_settings
+
+    assert get_settings().cors_origins == ["https://meetly-web.onrender.com"]
+
+    with TestClient(app) as client:
+        preflight = client.options(
+            "/api/session",
+            headers={
+                "Origin": "https://meetly-web.onrender.com",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+
+    assert preflight.headers["access-control-allow-origin"] == (
+        "https://meetly-web.onrender.com"
+    )

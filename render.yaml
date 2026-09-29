@@ -1,0 +1,66 @@
+# Render blueprint for Meetly. The decisions behind it are in ADR-0002.
+#
+# Apply it from Render: New -> Blueprint, and point it at this repository. Then
+# work through docs/deploying-to-render.md, which covers the two values Render
+# cannot know before it creates the services.
+#
+# Two services, not one: the browser talks to FastAPI directly (SPEC.md, Network
+# topology), so the API cannot also be the web origin.
+
+services:
+  # The API. Exactly one instance, exactly one worker — the in-process realtime
+  # hub makes a second of either a bug rather than a scaling win.
+  - type: web
+    name: meetly-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -e './backend'
+    startCommand: >-
+      cd backend
+      && alembic upgrade head
+      && uvicorn app.main:create_app --factory --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    # A persistent disk is what makes the guest cookie survive a redeploy rather
+    # than just a restart. Render does not offer disks on the free plan, so on
+    # free this is commented out and the SQLite file is ephemeral — see the
+    # deployment notes before choosing.
+    # disk:
+    #   name: meetly-data
+    #   mountPath: /var/data
+    #   sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.11"
+      - key: MEETLY_DATABASE_PATH
+        # Must be the disk's mount point, not the repository, or the file is
+        # lost on every deploy.
+        value: /var/data/meetly.sqlite3
+      # Render generates and keeps this. It signs the guest cookie, so losing
+      # it costs every visitor their identity — and it must not be the built-in
+      # placeholder, which the application refuses to serve a real origin with.
+      - key: MEETLY_COOKIE_SECRET
+        generateValue: true
+      # The frontend's origin, including the scheme. A bare hostname is also
+      # accepted and read as https, which is the only guess available.
+      - key: MEETLY_CORS_ORIGINS
+        sync: false
+
+  # The frontend. Next.js, served by `next start` rather than exported as static
+  # files: /room/<id> is a dynamic route with no enumerable set of ids, so it
+  # cannot be built ahead of time. This corrects ADR-0002's "static Next.js
+  # build"; the note there records it.
+  - type: web
+    name: meetly-web
+    runtime: node
+    plan: free
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start -- --port $PORT
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "22.17.0"
+      # Baked into the client bundle at build time, so changing it needs a
+      # redeploy of this service rather than a restart.
+      - key: NEXT_PUBLIC_API_BASE_URL
+        sync: false

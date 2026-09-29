@@ -23,12 +23,36 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    TypeDecorator,
     UniqueConstraint,
     create_engine,
     event,
 )
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+
+
+class UtcDateTime(TypeDecorator):
+    """A timestamp that reads back as UTC, whatever the database kept.
+
+    SQLite has no timezone, so a value written as `2026-09-29 18:00+00` comes
+    back naive. Left alone that reaches the browser as `2026-09-29T18:00`, and
+    `new Date(...)` then reads it as *local* time — a timestamp silently shifted
+    by the viewer's offset, on a page whose whole job is telling people when a
+    meeting is. Every column here is UTC by definition, so the type reattaches
+    the offset on the way out rather than leaving each call site to remember.
+    """
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value
 
 
 class Base(DeclarativeBase):
@@ -49,7 +73,7 @@ class User(Base):
     )
     display_name: Mapped[str] = mapped_column(String(80), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_utcnow
+        UtcDateTime, nullable=False, default=_utcnow
     )
 
 
@@ -74,17 +98,17 @@ class Meeting(Base):
     # Null scheduled_start_at means an Instant Meeting — the distinction is
     # carried by the null itself, so no `kind` column duplicates it.
     scheduled_start_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UtcDateTime, nullable=True
     )
     duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UtcDateTime, nullable=True
     )
     ended_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UtcDateTime, nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_utcnow
+        UtcDateTime, nullable=False, default=_utcnow
     )
 
 
@@ -111,10 +135,10 @@ class Participant(Base):
         String(36), ForeignKey("users.id"), nullable=False, index=True
     )
     joined_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_utcnow
+        UtcDateTime, nullable=False, default=_utcnow
     )
     left_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UtcDateTime, nullable=True
     )
     is_muted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_video_on: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
