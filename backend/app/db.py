@@ -1,7 +1,6 @@
 """The database engine and session factory."""
 
 from collections.abc import Iterator
-from contextlib import contextmanager
 
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -24,21 +23,6 @@ def get_engine() -> Engine:
 
 def get_session() -> Iterator[Session]:
     """One database session per request."""
-    get_engine()
-    assert _sessions is not None
-    with _sessions() as session:
-        yield session
-
-
-@contextmanager
-def database_session() -> Iterator[Session]:
-    """A session outside a request, for scripts and test fixtures.
-
-    Requests get their session through `get_session`, and application code should
-    never need this. What it exists for is arranging a world the API cannot yet
-    produce — a Meeting that has already ended, before there is an endpoint that
-    ends one. The behaviour under test is still asserted over HTTP.
-    """
     get_engine()
     assert _sessions is not None
     with _sessions() as session:

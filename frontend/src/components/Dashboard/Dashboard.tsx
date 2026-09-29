@@ -13,7 +13,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { ApiError, Session, apiFetch, createMeeting } from "@/lib/api";
+import { ApiError, Session, createMeeting, getSession } from "@/lib/api";
 
 import styles from "./Dashboard.module.css";
 
@@ -34,7 +34,7 @@ export function Dashboard() {
   useEffect(() => {
     let cancelled = false;
 
-    apiFetch<Session>("/api/session")
+    getSession()
       .then((loaded) => {
         if (!cancelled) setSession(loaded);
       })

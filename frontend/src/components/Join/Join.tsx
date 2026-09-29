@@ -21,8 +21,8 @@ import { useEffect, useState } from "react";
 import {
   ApiError,
   Meeting,
-  apiFetch,
   getMeetingByJoinCode,
+  getSession,
   isJoinCodeShape,
   updateDisplayName,
 } from "@/lib/api";
@@ -38,24 +38,18 @@ type Props = {
  * Why the meeting could not be entered, in the words of someone who was told a
  * number by a colleague and got it slightly wrong.
  *
- * Three refusals, three different meanings — the backend distinguishes them, and
- * flattening them into one "could not join" would throw away the only thing the
- * person can act on.
+ * The API's own `detail` is preferred, because it is written for the person
+ * rather than for the developer. The fallbacks cover the two failures it cannot
+ * describe: a network that never answered, and a response with no detail on it.
  */
 function messageFor(cause: unknown): string {
-  if (!(cause instanceof ApiError)) {
-    return "We could not reach the server. Please try again.";
+  if (cause instanceof ApiError) {
+    if (cause.detail) return cause.detail;
+    if (cause.status >= 500) {
+      return "We could not join that meeting. Please try again in a moment.";
+    }
   }
-  switch (cause.status) {
-    case 400:
-      return "That is not a Meeting ID. A Meeting ID is eleven digits, grouped like 123 456 789 01.";
-    case 404:
-      return "No meeting has that Meeting ID. Check the digits with whoever invited you.";
-    case 410:
-      return "That meeting has already ended.";
-    default:
-      return "We could not join that meeting. Please try again.";
-  }
+  return "We could not reach the server. Please try again.";
 }
 
 export function Join({ joinCode }: Props) {
@@ -68,7 +62,7 @@ export function Join({ joinCode }: Props) {
   useEffect(() => {
     let cancelled = false;
 
-    apiFetch<{ display_name: string }>("/api/session")
+    getSession()
       .then((session) => {
         if (!cancelled) setDisplayName(session.display_name);
       })
@@ -113,8 +107,8 @@ export function Join({ joinCode }: Props) {
     } catch (cause: unknown) {
       setJoining(false);
       setError(
-        cause instanceof ApiError && cause.status === 400
-          ? "Your name cannot be blank."
+        cause instanceof ApiError && cause.detail
+          ? cause.detail
           : "We could not save your name. Please try again.",
       );
       return;

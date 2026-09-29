@@ -79,6 +79,11 @@
   /* Sizing. */
   --size-navbar-height: 4rem;
   --size-control-height: 2.5rem;
+  /* The Join control is the one button on a screen whose whole job is being
+     pressed, so it is taller than an ordinary control. Named rather than written
+     as `3rem` at the call site, because a component that hardcodes a size has
+     taken ownership of a value the token layer owns. */
+  --size-control-height-lg: 3rem;
   --size-avatar-sm: 2rem;
   --size-avatar-md: 2.5rem;
   --size-avatar-lg: 4rem;

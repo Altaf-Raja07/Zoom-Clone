@@ -3,13 +3,15 @@
 A Zoom-style conferencing platform. This repository is the product spec, the
 architecture decisions behind it, and the implementation.
 
-**Current state:** tickets 01 and 02. A first-time visitor opens the app, is
+**Current state:** tickets 01 to 03. A first-time visitor opens the app, is
 given a real `User` row through a signed cookie, and is greeted on the dashboard
 by their Display Name. There is no signup and no login step. Clicking New
 Meeting creates a Meeting and walks the host into its room, with an eleven-digit
 Meeting ID grouped 3-4-4 and an Invite Link that reaches the clipboard in one
-action. Joining, scheduling, the pre-join screen and the live room are not built
-yet.
+action. Someone who has been sent that Invite Link, or told the Meeting ID, can
+join it: both resolve to the same Meeting, and a malformed, unknown or already
+finished one is refused with a plain sentence instead of a blank screen.
+Scheduling, the pre-join screen and the live room are not built yet.
 
 - `SPEC.md` — the product spec and the implementation decisions behind it
 - `GLOSSARY.md` — the domain language, and what to call things

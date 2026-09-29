@@ -94,13 +94,41 @@ def test_a_malformed_meeting_id_is_rejected_before_any_lookup(
     )
 
 
-def test_a_malformed_meeting_id_is_rejected_even_if_it_would_not_exist(
+def test_a_mistyped_code_is_refused_for_its_shape_not_for_being_unknown(
     client: Session, a_meeting: dict
 ):
-    """Validation comes before the lookup, so a wrong-shaped code cannot 404."""
-    response = lookup(client, a_meeting["join_code"][:-1])
+    """A real Meeting ID with a digit missing is a typo, not a missing Meeting.
 
+    The code here belongs to a Meeting that exists — `123` is genuinely nobody's —
+    so this distinguishes a refused *shape* from a failed lookup. If validation
+    ran after the lookup this would still be a 400, but the message would be the
+    404's, telling a person their host's meeting had never existed.
+    """
+    mistyped = a_meeting["join_code"][:-1]
+
+    response = lookup(client, mistyped)
+
+    assert len(mistyped) != 11
     assert response.status_code == 400
+    assert "not a Meeting ID" in response.json()["detail"]
+
+
+def test_an_ended_meeting_cannot_be_entered_by_its_room_address_either(
+    client: Session, a_meeting: dict, end_meeting
+):
+    """The room door refuses a finished Meeting, not just the join door.
+
+    A reloaded room, a bookmarked address or a link copied from the URL bar all
+    arrive here rather than at the join screen. Leaving this door open would make
+    "has ended" true of the join route and false of the room, which is the case
+    requirement 28 exists to prevent.
+    """
+    end_meeting(a_meeting["join_code"])
+
+    response = client.get(f"/api/meetings/{a_meeting['id']}")
+
+    assert response.status_code == 410
+    assert response.json()["detail"] == "That meeting has already ended."
 
 
 def test_an_unknown_meeting_id_says_the_meeting_does_not_exist(client: Session):
@@ -167,9 +195,17 @@ def test_the_display_name_is_confirmed_before_entering(client: Session):
     assert client.get("/api/session").json()["display_name"] == "Priya"
 
 
-def test_a_confirmed_display_name_is_the_one_other_people_would_see(
+def test_a_confirmed_display_name_is_stored_on_the_person_not_the_meeting(
     another_visitor: Session,
 ):
+    """Stored against the User, so it is the same value whoever reads it later.
+
+    Requirement 29 asks for the name *other participants* will see, and that
+    cannot be asserted here: nobody is a Participant until the ticket that builds
+    the live room. What can be asserted is the half that makes it true — the name
+    lives on the User row every later reader will use, rather than being passed
+    along for this one navigation and lost.
+    """
     another_visitor.patch("/api/session", json={"display_name": "Priya"})
 
     assert another_visitor.get("/api/session").json()["display_name"] == "Priya"

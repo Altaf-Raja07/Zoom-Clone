@@ -15,6 +15,16 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /**
+     * The `detail` the API sent, when it sent one.
+     *
+     * Carried rather than discarded because FastAPI's refusals are already
+     * written for a person — "No meeting has that Meeting ID." — and a second
+     * copy of that sentence in the frontend is a second thing to keep in step
+     * with the first. The frontend falls back to its own wording only for a
+     * failure the API had no detail for.
+     */
+    readonly detail?: string,
   ) {
     super(message);
     this.name = "ApiError";
@@ -31,7 +41,15 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   });
 
   if (!response.ok) {
-    throw new ApiError(`Request to ${path} failed`, response.status);
+    // `detail` is not always a string — FastAPI puts a list of validation errors
+    // there for a malformed body — so anything else is treated as no detail
+    // rather than rendered as `[object Object]` on the page.
+    const body = (await response.json().catch(() => null)) as {
+      detail?: unknown;
+    } | null;
+    const detail = typeof body?.detail === "string" ? body.detail : undefined;
+
+    throw new ApiError(`Request to ${path} failed`, response.status, detail);
   }
   return response.json() as Promise<T>;
 }
@@ -62,6 +80,10 @@ export type Meeting = {
   is_host: boolean;
   host: { id: string; display_name: string };
 };
+
+export function getSession(): Promise<Session> {
+  return apiFetch<Session>("/api/session");
+}
 
 export function createMeeting(): Promise<Meeting> {
   return apiFetch<Meeting>("/api/meetings", { method: "POST" });

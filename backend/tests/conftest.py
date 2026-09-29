@@ -23,9 +23,10 @@ ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
 # Imported at module scope so the process-wide settings and engine can be reset
 # between tests without each test reaching into `app` itself.
 from app.config import reset_settings  # noqa: E402
-from app.db import database_session, reset_engine  # noqa: E402
+from app.db import get_engine, reset_engine  # noqa: E402
 from app.join_codes import generate_join_code  # noqa: E402
 from app.main import create_app  # noqa: E402
+from app.models import session_factory_for  # noqa: E402
 from app.repository import get_meeting_by_join_code  # noqa: E402
 
 
@@ -130,10 +131,14 @@ def end_meeting(app):
     seam-true way to reach this state over HTTP. This reaches below the API to
     *arrange* it — the assertions that follow are still HTTP responses, which is
     the part that would be worth nothing if it were faked.
+
+    The session is opened here rather than through a helper on `app.db`, because
+    the application has exactly one way to reach the database — a request — and a
+    second door for tests only is a door the application no longer needs.
     """
 
     def end(join_code: str) -> None:
-        with database_session() as session:
+        with session_factory_for(get_engine())() as session:
             meeting = get_meeting_by_join_code(session, join_code)
             assert meeting is not None, "end_meeting was given a code that matches nothing"
             meeting.ended_at = datetime.now(UTC)

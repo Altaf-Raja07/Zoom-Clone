@@ -162,8 +162,15 @@ def read_meeting(
     Open to any guest: anyone holding an Invite Link can get here, and there is
     no access control between users in this app (SPEC.md, Out of Scope). A
     meeting that does not exist says so plainly rather than 404-ing opaquely.
+
+    The ended check is here as well as on the by-code route, because this is the
+    other door into a Meeting: a reloaded room, a bookmark, a link copied from
+    the address bar. Refusing only the join route would leave a stale URL as a
+    way back into a finished Meeting, which is the case requirement 28 is about.
     """
     meeting = get_meeting(session, meeting_uuid)
     if meeting is None:
         raise HTTPException(status_code=404, detail="No such meeting.")
+    if has_ended(meeting):
+        raise HTTPException(status_code=410, detail="That meeting has already ended.")
     return to_view(meeting, session, user)

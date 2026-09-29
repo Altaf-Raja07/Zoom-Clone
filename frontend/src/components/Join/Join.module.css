@@ -116,7 +116,7 @@
 
 .joinButton {
   margin-top: var(--space-5);
-  min-height: 3rem;
+  min-height: var(--size-control-height-lg);
   border: 1px solid var(--action-primary-bg);
   border-radius: var(--radius-md);
   background: var(--action-primary-bg);

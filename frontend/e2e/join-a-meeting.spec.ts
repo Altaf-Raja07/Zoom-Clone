@@ -158,9 +158,29 @@ test("a guest is never offered the host's own arrival screen", async ({ browser 
   await guestPage.getByTestId("join-button").click();
   await expect(guestPage).toHaveURL(/\/room\/[0-9a-f-]{36}$/);
 
+  // Not the badge alone. A guest who is told "Your meeting is ready" and handed
+  // a Copy Invite Link button has been given the host's screen, and a badge that
+  // says "Hosted by …" somewhere else on the page does not undo that.
   await expect(guestPage.getByTestId("host-badge")).not.toHaveText("Host");
+  await expect(guestPage.getByRole("heading", { level: 1 })).toHaveText(
+    "You are in the meeting",
+  );
+  await expect(
+    guestPage.getByRole("button", { name: "Copy invite link" }),
+  ).toHaveCount(0);
+  await expect(guestPage.getByTestId("invite-path")).toHaveCount(0);
 
   await guest.close();
+  await host.context.close();
+});
+
+test("the host still gets the invite link to share", async ({ browser }) => {
+  const host = await hostAMeeting(browser);
+
+  // The guest's screen is not the host's: the host must keep the share controls.
+  await expect(host.page.getByRole("button", { name: "Copy invite link" })).toBeVisible();
+  await expect(host.page.getByTestId("invite-path")).toBeVisible();
+
   await host.context.close();
 });
 

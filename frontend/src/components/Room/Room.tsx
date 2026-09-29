@@ -41,8 +41,8 @@ export function Room({ meetingUuid }: Props) {
       .catch((cause: unknown) => {
         if (cancelled) return;
         setError(
-          cause instanceof ApiError && cause.status === 404
-            ? "That meeting does not exist. Check the ID you followed."
+          cause instanceof ApiError && cause.detail
+            ? cause.detail
             : "We could not reach the server. Please try again.",
         );
       });
@@ -107,11 +107,28 @@ export function Room({ meetingUuid }: Props) {
       </header>
 
       <main className={styles.main}>
-        <h1 className={styles.title}>Your meeting is ready</h1>
-        <p className={styles.subtitle}>
-          Share the Meeting ID or the Invite Link. Anyone who has either can join —
-          there is no password.
-        </p>
+        {/* Two different arrivals from one page. A host is told their Meeting is
+            ready to share; a guest who followed a link is told they are in
+            someone else's Meeting, and is not handed the host's copy controls as
+            though sharing were theirs to give. */}
+        {meeting.is_host ? (
+          <>
+            <h1 className={styles.title}>Your meeting is ready</h1>
+            <p className={styles.subtitle}>
+              Share the Meeting ID or the Invite Link. Anyone who has either can
+              join — there is no password.
+            </p>
+          </>
+        ) : (
+          <>
+            <h1 className={styles.title}>You are in the meeting</h1>
+            <p className={styles.subtitle}>
+              You joined with the Meeting ID below. The live room — participants,
+              stage and controls — arrives in a later ticket; this page is the
+              arrival, not the meeting.
+            </p>
+          </>
+        )}
 
         <section className={styles.card}>
           <h2 className={styles.cardTitle}>Meeting ID</h2>
@@ -122,31 +139,36 @@ export function Room({ meetingUuid }: Props) {
             Grouped 3-4-4 so it can be read out over a phone call.
           </p>
 
-          <h2 className={styles.cardTitle}>Invite Link</h2>
-          <p className={styles.invitePath} data-testid="invite-path">
-            {absoluteInviteLink(meeting.invite_path)}
-          </p>
-          <div className={styles.copyRow}>
-            <button
-              type="button"
-              className={styles.copyButton}
-              onClick={() => void copyInviteLink()}
-            >
-              Copy invite link
-            </button>
-            <span aria-live="polite" className={styles.copyStatus}>
-              {copied ? (
-                <span className={styles.copied} data-testid="copied">
-                  Copied
+          {meeting.is_host ? (
+            <>
+              <h2 className={styles.cardTitle}>Invite Link</h2>
+              <p className={styles.invitePath} data-testid="invite-path">
+                {absoluteInviteLink(meeting.invite_path)}
+              </p>
+              <div className={styles.copyRow}>
+                <button
+                  type="button"
+                  className={styles.copyButton}
+                  onClick={() => void copyInviteLink()}
+                >
+                  Copy invite link
+                </button>
+                <span aria-live="polite" className={styles.copyStatus}>
+                  {copied ? (
+                    <span className={styles.copied} data-testid="copied">
+                      Copied
+                    </span>
+                  ) : null}
+                  {copyFailed ? (
+                    <span className={styles.copyError} role="alert">
+                      Your browser would not let us copy. Select the link and copy
+                      it.
+                    </span>
+                  ) : null}
                 </span>
-              ) : null}
-              {copyFailed ? (
-                <span className={styles.copyError} role="alert">
-                  Your browser would not let us copy. Select the link and copy it.
-                </span>
-              ) : null}
-            </span>
-          </div>
+              </div>
+            </>
+          ) : null}
         </section>
 
         <p className={styles.notYet}>
