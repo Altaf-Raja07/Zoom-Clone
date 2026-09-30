@@ -1,0 +1,301 @@
+/**
+ * Layer 3: component styles.
+ *
+ * Semantic tokens only, like every other component module — `npm run
+ * lint:tokens` fails the build if a colour or a raw palette token appears here.
+ *
+ * The stage is dark and the rest of the app is not, because this screen is the
+ * one place a person's own image is the content. Zoom's pre-join is a dark stage
+ * with controls beneath it, and the reason is the same here: light text around a
+ * camera preview is the convention people arrive with from every other tool they
+ * have used, and the alternative is a bright page with a dark rectangle in the
+ * middle of it.
+ *
+ * **This surface has no reference capture.** It is designed from Zoom convention
+ * rather than from the supplied screenshots, and the README says so. Nothing here
+ * may be described as a measured Zoom value.
+ */
+
+.navbar {
+  display: flex;
+  align-items: center;
+  height: var(--size-navbar-height);
+  padding: 0 var(--space-5);
+  background: var(--surface-navbar);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-accent);
+  letter-spacing: var(--letter-spacing-tight);
+}
+
+.brandMark {
+  display: grid;
+  place-items: center;
+  width: var(--size-avatar-md);
+  height: var(--size-avatar-md);
+  border-radius: var(--radius-md);
+  background: var(--action-primary-bg);
+  color: var(--action-primary-text);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.main {
+  max-width: var(--size-card-max);
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-5) var(--space-8);
+}
+
+.title {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+}
+
+.subtitle {
+  margin-top: var(--space-1);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+/* The preview and its stand-in share this box, so a camera that fails does not
+   reflow the page under somebody's hands. Sized as a ratio rather than a fixed
+   height because a phone in portrait has very little of it to give. */
+.stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: var(--ratio-camera-preview);
+  margin-top: var(--space-5);
+  overflow: hidden;
+  border: 1px solid var(--border-on-dark);
+  border-radius: var(--radius-lg);
+  background: var(--surface-meeting-stage);
+}
+
+.preview {
+  width: 100%;
+  height: 100%;
+  /* Mirrored, because a preview that is not feels wrong to everyone who has
+     used any video tool: people expect to see themselves the way a mirror
+     shows them, not the way a camera does. */
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+/* The stand-in for when there is no video to show. Not an error state: this is
+   also what somebody who has deliberately turned their camera off sees, and it
+   must not read as something having gone wrong. */
+.fallback {
+  display: grid;
+  place-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  text-align: center;
+}
+
+.fallbackName {
+  display: grid;
+  place-items: center;
+  width: var(--size-avatar-lg);
+  height: var(--size-avatar-lg);
+  border-radius: var(--radius-pill);
+  background: var(--action-primary-bg);
+  color: var(--action-primary-text);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+}
+
+.fallbackText {
+  color: var(--text-on-dark-secondary);
+  font-size: var(--font-size-sm);
+}
+
+/* A device notice sits outside the stage rather than over it, so the sentence is
+   never competing with a face for the same pixels. */
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--status-muted-bg);
+  color: var(--status-warning-fg);
+  font-size: var(--font-size-sm);
+}
+
+.retryButton {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--action-secondary-border);
+  border-radius: var(--radius-sm);
+  background: var(--action-secondary-bg);
+  color: var(--action-secondary-text);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.retryButton:hover {
+  background: var(--action-secondary-bg-hover);
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+/* A toggle states its own position in words. The pressed state is carried by
+   `aria-pressed` for a screen reader and by the visible "On"/"Off" for everyone
+   else, so the control is legible without decoding a colour. */
+.toggleOn,
+.toggleOff {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--size-control-height);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.toggleOn {
+  border: 1px solid var(--action-primary-bg);
+  background: var(--action-primary-bg);
+  color: var(--action-primary-text);
+}
+
+.toggleOn:hover {
+  background: var(--action-primary-bg-hover);
+}
+
+.toggleOff {
+  border: 1px solid var(--action-secondary-border);
+  background: var(--action-secondary-bg);
+  color: var(--action-secondary-text);
+}
+
+.toggleOff:hover {
+  background: var(--action-secondary-bg-hover);
+}
+
+.toggleIcon {
+  font-size: var(--font-size-md);
+}
+
+.toggleState {
+  opacity: 0.72;
+  font-weight: var(--font-weight-medium);
+}
+
+.label {
+  display: block;
+  margin-top: var(--space-5);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-secondary);
+}
+
+.input {
+  width: 100%;
+  margin-top: var(--space-2);
+  min-height: var(--size-control-height);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-input);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.hint {
+  margin-top: var(--space-1);
+  margin-bottom: var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+/* The tallest control on the app, because this screen has one job and pressing
+   the wrong thing here means being seen before you meant to be. */
+.joinButton {
+  width: 100%;
+  margin-top: var(--space-4);
+  min-height: var(--size-control-height-lg);
+  border: 1px solid var(--action-primary-bg);
+  border-radius: var(--radius-md);
+  background: var(--action-primary-bg);
+  color: var(--action-primary-text);
+  font-family: inherit;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.joinButton:hover:not(:disabled) {
+  background: var(--action-primary-bg-hover);
+}
+
+/* Never disabled for a device reason. A missing camera leaves the name field
+   blank and this enabled, because a person with no webcam is not less ready to
+   join than a person with one. */
+.joinButton:disabled {
+  border-color: var(--action-disabled-bg);
+  background: var(--action-disabled-bg);
+  color: var(--action-disabled-text);
+  cursor: not-allowed;
+}
+
+.joinButton:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.error {
+  color: var(--status-error-fg);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+@media (max-width: 48rem) {
+  .navbar {
+    padding: 0 var(--space-4);
+  }
+
+  .main {
+    padding: var(--space-5) var(--space-4) var(--space-7);
+  }
+
+  /* Stacked, because two toggles side by side on a phone each end up narrower
+     than the word "Microphone". */
+  .controls {
+    flex-direction: column;
+  }
+
+  .toggleOn,
+  .toggleOff {
+    justify-content: flex-start;
+  }
+}

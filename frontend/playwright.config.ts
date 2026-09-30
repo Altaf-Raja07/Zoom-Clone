@@ -56,5 +56,31 @@ export default defineConfig({
   use: {
     baseURL: FRONTEND_ORIGIN,
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  // Two projects rather than one, because the camera flags are read at browser
+  // launch and cannot be changed per test — `test.use({launchOptions})` inside a
+  // `describe` is refused by Playwright for exactly that reason. The pre-join
+  // screen needs both worlds to be testable: a machine *with* a camera, and a
+  // machine without one. Chromium's fake device is the stand-in for the former,
+  // and the plain project's genuine absence is the honest version of the latter.
+  projects: [
+    {
+      name: "chromium",
+      testIgnore: /pre-join-camera\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "chromium-camera",
+      testMatch: /pre-join-camera\.spec\.ts/,
+      use: {
+        ...devices["Desktop Chrome"],
+        permissions: ["camera", "microphone"],
+        launchOptions: {
+          args: [
+            "--use-fake-device-for-media-stream",
+            "--use-fake-ui-for-media-stream",
+          ],
+        },
+      },
+    },
+  ],
 });

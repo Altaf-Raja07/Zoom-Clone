@@ -96,6 +96,10 @@
      dates and a row of long ones line up in the same column and the titles start
      at the same x. */
   --size-meeting-when-width: 6.5rem;
+  /* The pre-join camera preview's shape. 16:9 because that is the shape of the
+     camera this is previewing, and letterboxing it into something else would
+     show a person a framing nobody else will ever see. */
+  --ratio-camera-preview: 16 / 9;
 
   /* Motion. */
   --duration-fast: 120ms;

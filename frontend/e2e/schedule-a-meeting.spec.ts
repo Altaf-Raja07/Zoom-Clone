@@ -130,7 +130,10 @@ test("the invite link can be followed before the meeting begins", async ({
   await expect(guestPage.getByTestId("join-code")).toHaveValue(
     meetingId.replaceAll(" ", ""),
   );
-  await guestPage.getByTestId("display-name").fill("Priya");
+  // No Display Name here: the join screen's one job is to say *which* Meeting,
+  // and the name is confirmed on pre-join beside a preview. The point of this
+  // test is that the gate refuses *before* that screen, so there is nothing to
+  // confirm.
   await guestPage.getByTestId("join-button").click();
 
   // Too early, and it says so in a way that names the situation rather than
@@ -172,6 +175,10 @@ test("a scheduled meeting lets a guest in once its time has arrived", async ({
   const guest = await browser.newContext();
   const guestPage = await guest.newPage();
   await guestPage.goto(inviteLink);
+  await guestPage.getByTestId("join-button").click();
+  // Through pre-join, where the name is confirmed — the same two steps the other
+  // test above is refused *before*.
+  await expect(guestPage).toHaveURL(/\/prejoin\//);
   await guestPage.getByTestId("display-name").fill("Priya");
   await guestPage.getByTestId("join-button").click();
 

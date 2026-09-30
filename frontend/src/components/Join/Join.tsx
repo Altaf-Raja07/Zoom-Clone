@@ -1,15 +1,25 @@
 /**
- * The join screen: one place both ways in arrive.
+ * The join screen: one place both ways in arrive, and one field.
  *
  * The Invite Link lands on `/join/<code>` with the field already filled, and the
  * dashboard's Join Meeting button lands on `/join` with it empty. Both are the
  * same component and the same lookup, because they are the same Meeting — the
  * two identifiers are an addressing choice, not two features (ADR-0004).
  *
- * The Display Name is confirmed here rather than in the room, because a name is
- * only worth confirming before anyone else has seen it. The pre-join screen will
- * move this alongside a camera preview; until then the confirmation lives on the
- * one screen that both entry points pass through.
+ * **This screen no longer asks for the Display Name.** It used to, because it was
+ * the only screen between a link and the room; now that is the pre-join screen's
+ * job, which is the one place where the name is worth confirming — beside a live
+ * preview, where somebody can see whether they look like the person about to be
+ * named. Asking twice would mean correcting it twice.
+ *
+ * What is left here is the one thing this screen knows that pre-join does not:
+ * *which* Meeting. So the field is the Meeting ID, the lookup resolves it, and
+ * the result is handed to `/prejoin/<id>` rather than straight to the room.
+ *
+ * The gate is unchanged and is still applied here: a Meeting that has not started,
+ * has ended, or does not exist is refused before anybody reaches a camera prompt
+ * for it. Nobody should be asked to fix their microphone for a meeting they were
+ * never going to be allowed into.
  */
 
 "use client";
@@ -23,9 +33,7 @@ import {
   Meeting,
   explainApiError,
   getMeetingByJoinCode,
-  getSession,
   isJoinCodeShape,
-  updateDisplayName,
 } from "@/lib/api";
 
 import styles from "./Join.module.css";
@@ -41,7 +49,7 @@ type Props = {
  *
  * The 5xx sentence is this screen's own — "we could not join that meeting" and
  * "we could not schedule one" are different reactions — while which of the
- * three cases applies is decided by `explainApiError`, which every screen
+ * several cases applies is decided by `explainApiError`, which every screen
  * needing it shares. The API's own `detail` is preferred either way, because it
  * is written for the person rather than for the developer.
  */
@@ -50,29 +58,11 @@ const SERVER_FAULT = "We could not join that meeting. Please try again in a mome
 export function Join({ joinCode }: Props) {
   const router = useRouter();
   const [code, setCode] = useState(joinCode ?? "");
-  const [displayName, setDisplayName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    getSession()
-      .then((session) => {
-        if (!cancelled) setDisplayName(session.display_name);
-      })
-      // A missing pre-fill is not a failure worth reporting: the field is
-      // editable, and the person joining can type their name themselves.
-      .catch(() => undefined);
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const codeIsValid = isJoinCodeShape(code);
-  const nameIsUsable = displayName.trim().length > 0;
-  const canJoin = codeIsValid && nameIsUsable && !joining;
+  const canJoin = codeIsValid && !joining;
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -81,12 +71,10 @@ export function Join({ joinCode }: Props) {
     setJoining(true);
     setError(null);
 
-    // The Meeting is resolved first, so an unknown or finished one is refused
-    // before anything is written. The name is then stored *before* entering: a
-    // failure part-way through leaves it saved rather than silently discarded,
-    // and the room reads it from one place instead of carrying a second copy in
-    // memory. The two failures are reported apart, because "your name was
-    // rejected" and "that meeting has ended" call for different reactions.
+    // The Meeting is resolved here, on the screen that knows the Meeting ID, and
+    // every refusal — malformed, unknown, not yet, over — is reported here
+    // rather than two screens later. Pre-join never sees a Meeting it should
+    // not be entering, and nobody is prompted for a camera for one.
     let meeting: Meeting;
     try {
       meeting = await getMeetingByJoinCode(code);
@@ -96,23 +84,7 @@ export function Join({ joinCode }: Props) {
       return;
     }
 
-    let storedName: string;
-    try {
-      storedName = (await updateDisplayName(displayName)).display_name;
-    } catch (cause: unknown) {
-      setJoining(false);
-      setError(
-        cause instanceof ApiError && cause.detail
-          ? cause.detail
-          : "We could not save your name. Please try again.",
-      );
-      return;
-    }
-
-    // The field shows what was stored, not what was typed — a name truncated to
-    // the column's length would otherwise be corrected here and nowhere else.
-    setDisplayName(storedName);
-    router.push(`/room/${meeting.id}`);
+    router.push(`/prejoin/${meeting.id}`);
   }
 
   return (
@@ -157,23 +129,8 @@ export function Join({ joinCode }: Props) {
             data-testid="join-code"
           />
           <p className={styles.hint}>
-            Eleven digits, grouped so it can be read out over a phone call.
-          </p>
-
-          <label className={styles.label} htmlFor="display-name">
-            Your name
-          </label>
-          <input
-            id="display-name"
-            className={styles.input}
-            placeholder="The name other participants will see"
-            autoComplete="name"
-            value={displayName}
-            onChange={(event) => setDisplayName(event.target.value)}
-            data-testid="display-name"
-          />
-          <p className={styles.hint}>
-            Confirm this before you enter — it is the name people will see.
+            Eleven digits, grouped so it can be read out over a phone call. You
+            will get to check your camera and name on the next screen.
           </p>
 
           <button
@@ -182,7 +139,7 @@ export function Join({ joinCode }: Props) {
             disabled={!canJoin}
             data-testid="join-button"
           >
-            {joining ? "Joining…" : "Join"}
+            {joining ? "Looking…" : "Continue"}
           </button>
         </form>
 

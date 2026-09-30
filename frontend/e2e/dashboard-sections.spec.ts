@@ -123,12 +123,12 @@ test("a meeting created from the dashboard is the most recent one", async ({
 
   await bookAMeeting(page, "Earlier booking", 2);
 
-  // New Meeting navigates into the room rather than staying here, so this is
-  // also the honest test of the list reflecting what the host just did: come
-  // back to the dashboard afterwards.
+  // New Meeting navigates into pre-join rather than staying here, so this is also
+  // the honest test of the list reflecting what the host just did: come back to
+  // the dashboard afterwards.
   await page.goto("/");
   await page.getByRole("button", { name: "New Meeting" }).click();
-  await expect(page).toHaveURL(/\/room\/[0-9a-f-]{36}$/);
+  await expect(page).toHaveURL(/\/prejoin\//);
   await page.goto("/");
 
   const recent = page.getByTestId("recent-list").getByTestId("meeting-card");
@@ -147,7 +147,7 @@ test("an instant meeting with no title is named rather than left blank", async (
   const { context, page } = await freshDashboard(browser);
 
   await page.getByRole("button", { name: "New Meeting" }).click();
-  await expect(page).toHaveURL(/\/room\//);
+  await expect(page).toHaveURL(/\/prejoin\//);
   await page.goto("/");
 
   // The same words the schedule confirmation uses for the same case. An empty
@@ -295,11 +295,11 @@ for (const width of [1280, 768, 375]) {
     );
     expect(overflows).toBe(false);
 
-    // The Invite Link stays reachable at every width: on a phone the row stacks,
-    // and a stacked row where the link fell off the edge would be a control the
-    // host cannot press.
+    // The way into the Meeting stays reachable at every width: on a phone the row
+    // stacks, and a stacked row where the link fell off the edge would be a
+    // control the host cannot press.
     await expect(
-      page.getByTestId("upcoming-list").getByRole("link", { name: "Invite link" }),
+      page.getByTestId("upcoming-list").getByRole("link", { name: "Open" }),
     ).toBeVisible();
 
     await context.close();

@@ -160,15 +160,12 @@ client now sends a `state` message on open and the server records it. The
   for tests only is a door the application no longer needs"). The server's side is
   tested properly over the socket. This limitation is stated in the test itself
   rather than left for a reader to assume coverage.
-- **One pre-existing test now fails, deliberately.**
-  `join-a-meeting.spec.ts` → "a guest is never offered the host's own arrival
-  screen" asserts the page's `h1` reads "You are in the meeting", which this
-  ticket replaced with the Meeting's title. The *substantive* half of that
-  assertion still holds and still passes: a guest gets no "Copy invite link"
-  button, no Invite Link, and a badge reading "Hosted by …". Only the heading
-  text is stale, and the test was not edited because ticket 06 is being worked on
-  in this repository at the same time and owns that file. **It needs a
-  one-line update to `room-title` when the two tickets land.**
+- **~~One pre-existing test now fails, deliberately.~~ Resolved when ticket 06
+  landed.** `join-a-meeting.spec.ts` → "a guest is never offered the host's own
+  arrival screen" asserted the page's `h1` read "You are in the meeting", which
+  this ticket replaced with the Meeting's title. It now asserts `room-title`
+  against the host's own title, which is a stronger version of the same claim: a
+  guest is given *this* host's Meeting and not a generic stranger's greeting.
 - **Narrow-width room behaviour** (panels as drawers, the stage never squeezed)
   is ticket 11. What is here is the shape it starts from.
 

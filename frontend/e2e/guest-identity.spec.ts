@@ -236,7 +236,13 @@ test("a meeting created on a first visit belongs to the person who created it", 
   // to wait — still produces a Meeting that belongs to them.
   await page.getByRole("button", { name: "New Meeting" }).click();
 
+  // New Meeting lands on pre-join rather than the room, so the check is that the
+  // Meeting resolves to *this* browser's identity — the greeting is the identity
+  // under test here, and pre-join carries it.
+  await expect(page).toHaveURL(/\/prejoin\/[0-9a-f-]{36}$/);
+  await page.getByTestId("join-button").click();
   await expect(page).toHaveURL(/\/room\/[0-9a-f-]{36}$/);
+
   // The failure this pins was the creator landing on the guest's screen:
   // "You are in the meeting", hosted by a stranger, with no Invite Link at all.
   await expect(page.getByTestId("host-badge")).toHaveText("Host");

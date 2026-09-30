@@ -170,9 +170,15 @@ export function Dashboard() {
     setError(null);
     try {
       const meeting = await createMeeting();
-      // Pushing rather than linking, so Back returns to a dashboard that still
-      // has the session on it rather than re-fetching the whole app.
-      router.push(`/room/${meeting.id}`);
+      // To pre-join, not straight to the room. The host is a participant like any
+      // other and gets the same camera check, the same name confirmation and the
+      // same choice about whether to be heard — arriving to find yourself already
+      // broadcasting would make "check your camera before others arrive" true for
+      // guests and false for the one person in the meeting who arranged it.
+      //
+      // Pushed rather than linked, so Back returns to a dashboard that still has
+      // the session on it rather than re-fetching the whole app.
+      router.push(`/prejoin/${meeting.id}`);
     } catch {
       setStarting(false);
       setError("We could not start a meeting. Please try again.");

@@ -3,30 +3,41 @@
 A Zoom-style conferencing platform. This repository is the product spec, the
 architecture decisions behind it, and the implementation.
 
-**Current state:** tickets 01 to 05 and 07. A first-time visitor opens the app, is
+**Current state:** tickets 01 to 07. A first-time visitor opens the app, is
 given a real `User` row through a signed cookie, and is greeted on the dashboard
 by their Display Name. There is no signup and no login step. Clicking New
-Meeting creates a Meeting and walks the host into its room, with an eleven-digit
-Meeting ID grouped 3-4-4 and an Invite Link that reaches the clipboard in one
-action. Someone who has been sent that Invite Link, or told the Meeting ID, can
-join it: both resolve to the same Meeting, and a malformed, unknown, not-yet-started
-or already finished one is refused with a plain sentence instead of a blank
-screen. Clicking Schedule Meeting books a Meeting for later with a topic,
-description, date, time and duration, and hands back an Invite Link that can be
-shared immediately — the link is refused as too early only when someone tries to
-*join* through it before the Meeting's time. The dashboard's **Upcoming
-Meetings** and **Recent Meetings** sections are both live, driven by real rows
-and both filtered on the Host, so a reviewer never sees a stranger's booking.
+Meeting creates a Meeting and takes the host to a **pre-join screen**, with an
+eleven-digit Meeting ID grouped 3-4-4 and an Invite Link that reaches the
+clipboard in one action. Someone who has been sent that Invite Link, or told the
+Meeting ID, can join it: both resolve to the same Meeting, and a malformed,
+unknown, not-yet-started or already finished one is refused with a plain sentence
+instead of a blank screen. Clicking Schedule Meeting books a Meeting for later
+with a topic, description, date, time and duration, and hands back an Invite Link
+that can be shared immediately — the link is refused as too early only when
+someone tries to *join* through it before the Meeting's time. The dashboard's
+**Upcoming Meetings** and **Recent Meetings** sections are both live, driven by
+real rows and both filtered on the Host, so a reviewer never sees a stranger's
+booking.
+
+**The pre-join screen is the part to look at first**, because its unhappy paths
+are the design. Before entering, a person sees themselves in a live local camera
+preview, confirms the name they will be known by, and turns the microphone and
+camera on or off. Nothing about entering is ever taken away over a device: a
+denied permission, a machine with no webcam, and a machine with no microphone each
+produce a sentence naming the cause *and* the way forward, and each still reaches
+the room. The camera and the microphone are asked for **separately**, so a laptop
+with no webcam does not also cost you your microphone. It is the first of three
+surfaces designed without a reference screenshot — see the honesty notes below.
 
 **The room is live.** Open the same Invite Link in a second browser and the
 first person sees you appear in their participant list, with a count on the
 title bar, without refreshing — one WebSocket per person over an in-process
 broadcast hub. Leaving stamps a timestamp, and a past attendee does not reappear.
 The room's own stage is dark, matching the Zoom Workplace screenshots, and it
-carries the Meeting's title, the participant list, and each person's name. It has
-**no toolbar, no mute, no camera, no chat and no leave button yet** — those are
-tickets 08 to 10, each of which is behaviour rather than styling. The pre-join
-screen is being built in parallel with this one.
+carries the Meeting's title, the participant list, each person's name, and the
+camera and microphone state that person chose on pre-join. It has **no toolbar,
+no mute control, no local camera, no chat and no leave button yet** — those are
+tickets 08 to 10, each of which is behaviour rather than styling.
 
 ## Seeing a populated dashboard
 

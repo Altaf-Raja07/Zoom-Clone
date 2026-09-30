@@ -1,24 +1,35 @@
 /**
  * Seam 2: the running frontend, driven in a browser.
  *
- * What only a browser can show: that one click on New Meeting ends in a room,
- * that the Meeting ID is in Zoom's grouped format where a host can read it
- * aloud, and that the Invite Link reaches the clipboard in one action. The
- * backend runs for real, so none of it is stubbed.
+ * What only a browser can show: that one click on New Meeting creates a Meeting,
+ * that the host passes through pre-join and arrives in the room, that the Meeting
+ * ID is in Zoom's grouped format where a host can read it aloud, and that the
+ * Invite Link reaches the clipboard in one action. The backend runs for real, so
+ * none of it is stubbed.
+ *
+ * The pre-join step between New Meeting and the room is *tolerated* rather than
+ * ignored: these tests are about the Meeting the button makes, and the join is the
+ * one click that a host who has just decided to have a meeting would make next.
+ * Pre-join's own behaviour is asserted in `pre-join-screen.spec.ts` and
+ * `pre-join-camera.spec.ts`.
  */
 
 import { Page, expect, test } from "@playwright/test";
 
 test.use({ permissions: ["clipboard-read", "clipboard-write"] });
 
-/** The dashboard, with the host's Meeting already created and the room open. */
+/** The room, with a host's Meeting created and the host walked into it. */
 async function startAMeeting(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "New Meeting" }).click();
+  // New Meeting lands on pre-join: the host is a participant like any other and
+  // gets the same camera check before anyone can see them.
+  await expect(page).toHaveURL(/\/prejoin\/[0-9a-f-]{36}$/);
+  await page.getByTestId("join-button").click();
   await expect(page).toHaveURL(/\/room\/[0-9a-f-]{36}$/);
 }
 
-test("clicking New Meeting takes the host straight into the room", async ({ page }) => {
+test("clicking New Meeting takes the host into the room", async ({ page }) => {
   await startAMeeting(page);
 
   await expect(page.getByTestId("meeting-id")).toBeVisible();

@@ -20,6 +20,8 @@
 
 "use client";
 
+import Link from "next/link";
+
 import { Meeting } from "@/lib/api";
 import { UNTITLED } from "@/lib/meetings";
 
@@ -109,9 +111,14 @@ function MeetingCard({ meeting }: { meeting: Meeting }) {
         </p>
       </div>
 
-      <a className={styles.meetingLink} href={meeting.invite_path}>
-        Invite link
-      </a>
+      {/* Into the room, not the Invite Link. Both lists are the Host's own
+          Meetings, so a row is a way back to something they already made — and
+          since ticket 06 the room is behind pre-join, which is where a name and a
+          device choice get made. An Invite Link is for sharing, and the host's own
+          browser is not a guest arriving somewhere. */}
+      <Link className={styles.meetingLink} href={`/room/${meeting.id}`}>
+        Open
+      </Link>
     </li>
   );
 }
