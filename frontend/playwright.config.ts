@@ -22,7 +22,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const FRONTEND_PORT = 3100;
-const BACKEND_PORT = 8000;
+const BACKEND_PORT = Number(process.env.MEETLY_TEST_BACKEND_PORT ?? 8000);
 const FRONTEND_ORIGIN = `http://localhost:${FRONTEND_PORT}`;
 
 export default defineConfig({
@@ -34,6 +34,13 @@ export default defineConfig({
       url: FRONTEND_ORIGIN,
       reuseExistingServer: true,
       timeout: 120_000,
+      env: {
+        // The browser talks to the API directly, so the *frontend* has to be
+        // built with the same backend origin the tests are about to start. Left
+        // unset it falls back to port 8000 in `src/lib/api.ts`, which silently
+        // points a run on any other port at whatever else is listening there.
+        NEXT_PUBLIC_API_BASE_URL: `http://localhost:${BACKEND_PORT}`,
+      },
     },
     {
       // One entry point for running the backend, so a developer and the test
@@ -50,6 +57,7 @@ export default defineConfig({
         // Relative to backend/, where the script runs from. Kept off the
         // development database so a test run cannot leave rows behind in it.
         MEETLY_DATABASE_PATH: "data/playwright.sqlite3",
+        PORT: String(BACKEND_PORT),
       },
     },
   ],
@@ -62,15 +70,21 @@ export default defineConfig({
   // screen needs both worlds to be testable: a machine *with* a camera, and a
   // machine without one. Chromium's fake device is the stand-in for the former,
   // and the plain project's genuine absence is the honest version of the latter.
+  //
+  // Matched on the `-camera.spec.ts` *suffix* rather than on one filename, so a
+  // second spec that needs the fake device joins the right project by following
+  // the convention instead of by editing this file. `pre-join-camera` and
+  // `mute-video-panel-camera` are both routed this way, and each of them says so
+  // in its own header.
   projects: [
     {
       name: "chromium",
-      testIgnore: /pre-join-camera\.spec\.ts/,
+      testIgnore: /-camera\.spec\.ts$/,
       use: { ...devices["Desktop Chrome"] },
     },
     {
       name: "chromium-camera",
-      testMatch: /pre-join-camera\.spec\.ts/,
+      testMatch: /-camera\.spec\.ts$/,
       use: {
         ...devices["Desktop Chrome"],
         permissions: ["camera", "microphone"],

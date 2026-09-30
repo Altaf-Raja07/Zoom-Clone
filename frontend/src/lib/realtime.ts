@@ -131,8 +131,25 @@ export type RoomHandlers = {
   onStatus: (status: ConnectionStatus, detail?: string) => void;
 };
 
-/** A live connection, and the one way to end it. */
+/** A live connection: how to speak to the room, and how to leave it. */
 export type RoomConnection = {
+  /**
+   * Tell the room what this person's devices are doing.
+   *
+   * Sent as a whole state rather than a `toggle_mute` command, and that is the
+   * decision this function exists to make. A toggle asks the server to work out
+   * what changed, so the client's idea of the current state and the server's
+   * have to agree first — and when they disagree (a reconnect, a second tab, a
+   * message dropped) the room flips to the opposite of what the person pressed.
+   * Sending the intended state instead means the frame is idempotent and the
+   * server never has to hold an opinion about what somebody's toggle means.
+   *
+   * Silently does nothing when the socket is not open, because a person pressing
+   * mute during the half-second of a reconnect should end up muted, not
+   * confused. The state they pressed is what the next successful send will
+   * carry, and the room redraws from the server's answer rather than assuming.
+   */
+  setDevices: (devices: RoomDevices) => void;
   close: () => void;
 };
 
@@ -323,6 +340,13 @@ export function connectToRoom(
   open();
 
   return {
+    setDevices(devices: RoomDevices) {
+      send({
+        type: "state",
+        microphone_on: devices.microphoneOn,
+        camera_on: devices.cameraOn,
+      });
+    },
     close() {
       closed = true;
       stopTimers();

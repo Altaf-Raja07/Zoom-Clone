@@ -12,9 +12,9 @@ also opening a socket, so it is what holds the constraint in place.
 
 **`WS /api/meetings/{uuid}/ws`** is the realtime path. One socket per client,
 scoped to one Meeting, fanned out by the in-process hub. It carries the
-participant list, and it carries nothing else yet — mute, video and chat are
-later tickets, and they arrive as *more* message types on this socket rather
-than as new sockets, which is why the protocol below is shaped as tagged
+participant list and the chat, and it carries nothing else yet — mute and video
+are ticket 08's controls, and they arrive as *more* message types on this socket
+rather than as new sockets, which is why the protocol below is shaped as tagged
 messages rather than a bespoke payload.
 
 ## The protocol
@@ -25,6 +25,8 @@ Server to client, always JSON, always with a `type`:
   after every join or leave. **The full list rather than a delta**, so a client
   cannot drift out of step through a dropped message, and so a reconnecting
   client is identical to a connecting one.
+- `chat` — one message, as the server accepted it. Carries the sender's id and
+  Display Name, which the **server** decided; see `_broadcast_chat`.
 - `pong` — the answer to a `ping`. Exists so a client can tell a live socket
   from a half-open one, which on a free hosting tier is the single most useful
   thing a participant can be told.
@@ -34,13 +36,30 @@ Client to server:
 - `ping` — sent every ~25 seconds. Keeps the free tier from idling the service
   out from under a live meeting, and doubles as the meeting-is-still-alive
   signal (ADR-0002).
+- `chat` — `{"type": "chat", "text": "..."}`. The *only* field read is `text`.
 
-Two message types, both already needed by this ticket, rather than one
-connection per concern. The alternative — a socket for presence and a socket for
-chat — would double the places a reconnect has to succeed.
+Three message types on one connection rather than one connection per concern.
+The alternative — a socket for presence and a socket for chat — would double the
+places a reconnect has to succeed, and the reconnect is the part that is already
+the most fragile thing here.
+
+## Chat, and why there is no table for it
+
+Chat is relayed and forgotten: the server builds the payload, broadcasts it, and
+writes nothing. `GET /meetings/{id}/participants` has an HTTP twin for presence
+for a stated reason (it is the only way to observe the `left_at IS NULL` filter);
+chat has **no** such endpoint, and that absence is the point — a chat that could
+be fetched after the fact would be a chat that is stored, and storing it is a
+different feature with a different set of obligations (retention, deletion on
+request, access control, and a schema). ADR-0005 records the decision and what
+it costs.
+
+The consequence for a participant is real and is stated in the README: a message
+exists for the connection that received it and is gone when the Meeting ends.
 """
 
 from dataclasses import dataclass
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
@@ -73,6 +92,13 @@ from ..repository import (
 
 router = APIRouter(tags=["rooms"])
 
+# The longest message the room will relay. A WebSocket frame has none of the
+# validation an HTTP body gets, so this bound is what stops one participant
+# sending a megabyte of text that the server then fans out to everybody else.
+# It matches `maxlength` on the composer, so in practice a person hits the
+# composer's own limit first and never sees a message cut off.
+MAX_CHAT_MESSAGE_LENGTH = 1000
+
 
 class ParticipantView(BaseModel):
     """One person in the room, as the browser needs them.
@@ -94,6 +120,30 @@ class ParticipantView(BaseModel):
     joined_at: str
     is_muted: bool
     is_video_on: bool
+
+
+class ChatMessageView(BaseModel):
+    """One chat message, as the room needs it.
+
+    `user_id` and `display_name` are the **server's** answers, filled from the
+    socket's admitted identity. A client is free to put anything it likes in the
+    frame it sends, and if attribution were taken from there then every message
+    would be as trustworthy as the least careful participant in the room — which
+    is to say, not trustworthy at all. So the sender is never read off the wire.
+
+    `id` is minted here rather than by the client, and for the same reason
+    plus one more: the client needs a stable key to render a list by, and a
+    client-supplied key would collide the moment two people sent the same text.
+
+    `sent_at` is the server's clock, so two clients agree on the order of what
+    arrived rather than each rendering its own idea of the time.
+    """
+
+    id: str
+    user_id: str
+    display_name: str
+    text: str
+    sent_at: str
 
 
 class RoomParticipantsView(BaseModel):
@@ -285,6 +335,12 @@ async def join_room(
                 # the client say "reconnecting" instead of leaving a participant
                 # list frozen with no explanation.
                 await websocket.send_json({"type": "pong", "at": utcnow().isoformat()})
+            elif message.get("type") == "chat":
+                # Relayed, never written. The broadcast includes the sender, for
+                # the reason `MeetingHub.broadcast` gives: one code path renders
+                # every message, so there is no local-echo branch to disagree
+                # with what arrives over the wire.
+                await _broadcast_chat(hub, meeting, viewer.user, message)
             elif message.get("type") == "state":
                 # The devices this person chose on the pre-join screen, applied
                 # to the row so the record agrees with what the room shows.
@@ -389,4 +445,49 @@ async def _broadcast_participants(
             "type": "participants",
             **room.model_dump(mode="json"),
         },
+    )
+
+
+async def _broadcast_chat(
+    hub: MeetingHub, meeting: Meeting, sender: User, message: dict
+) -> None:
+    """Relay one chat message to everybody in the Meeting, and store nothing.
+
+    **The sender is an argument, not something read off the frame.** Whoever
+    sent it is whoever this socket was admitted as, which is the whole reason
+    attribution can be trusted: a client that put someone else's name in the
+    frame it sent would see their own words relabelled, and there is no version
+    of this where a message's author is a claim by its author.
+
+    A message that is not text, or is empty once trimmed, is dropped rather than
+    relayed. An empty bubble in the transcript reads as something a person said
+    and then lost, and "the send button did nothing" is a worse answer than a
+    composer that simply refuses to send whitespace.
+
+    Over-long text is truncated rather than refused, and the truncation is not
+    reported to anyone. Refusing means the sender's words vanish with no
+    explanation on a surface that has no error channel back to the composer, and
+    the client already limits the field to `MAX_CHAT_MESSAGE_LENGTH` — so this
+    bound is reached by a hand-written socket, not by a person typing.
+
+    **Nothing here touches the database.** That is the decision, not an omission
+    (ADR-0005): the message exists for the connections currently attached, and
+    the cost is that it is gone when the Meeting ends.
+    """
+    text = message.get("text")
+    if not isinstance(text, str):
+        return
+    text = text.strip()
+    if not text:
+        return
+
+    chat = ChatMessageView(
+        id=str(uuid4()),
+        user_id=sender.id,
+        display_name=sender.display_name,
+        text=text[:MAX_CHAT_MESSAGE_LENGTH],
+        sent_at=utcnow().isoformat(),
+    )
+    await hub.broadcast(
+        meeting.id, {"type": "chat", **chat.model_dump(mode="json")}
     )

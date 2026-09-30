@@ -1,5 +1,5 @@
 /**
- * The live room: the dark stage, and who is in it.
+ * The live room: the dark stage, the toolbar, and who is in it.
  *
  * This is the first screen in the app that is *about other people*. Everything
  * before it — the dashboard, the join screen, pre-join — is one person deciding
@@ -15,25 +15,41 @@
  * (`--surface-meeting-stage`), so this is a role the token layer already had a
  * name for rather than a colour invented here.
  *
- * **What this screen does not have yet, and says so.** No toolbar, no mute, no
- * camera feed, no chat, no leave control — those are tickets 08 to 10, and each
- * of them is a real piece of behaviour rather than a styling pass. The room
- * shows presence and identity now; pretending to more would be a lie a
- * reviewer can see through in one click.
+ * **Your own camera is real; everyone else's is not, and the room says so.**
+ * There is no peer-to-peer transport (ADR-0001), so a remote tile can never
+ * carry anybody's actual video. The local tile is a genuine `getUserMedia`
+ * stream, and a remote tile is an initial on a flat panel with a visible
+ * "simulated" line. The two must not be confusable: a tile that looked like
+ * live video would be the one genuinely misleading thing this screen could do,
+ * so the distinction is a design constraint rather than an oversight.
  *
- * **Simulated video is labelled as simulated.** ADR-0001 records that there is
- * no peer-to-peer transport, so a remote tile can never carry anybody's real
- * video. A tile that looked like video would be the one genuinely misleading
- * thing this screen could do, so remote tiles say what they are. The local
- * camera arrives with ticket 08, when there is a real stream to show.
+ * **The toolbar follows the reference's shape, not a neat row.** Left, centre
+ * and right groups rather than evenly spaced controls; the destructive
+ * end-meeting action alone at the far right and visually distinct, because the
+ * cost of pressing it by accident is the meeting; and a chevron on the controls
+ * that will carry a submenu, which is how the reference signals one without
+ * opening one.
+ *
+ * **What this screen does not have yet, and says so.** Chat and end-meeting are
+ * rendered where the reference puts them but are **disabled with the reason
+ * stated** — they are tickets 09 and 10, and a live-looking control that does
+ * nothing when pressed is worse than an absent one. The "Leave" control is
+ * likewise ticket 10's. A toolbar is the most-used surface in a conferencing
+ * product, and a row of dead buttons on it reads as a broken build.
  */
 
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiError, Meeting, absoluteInviteLink, getMeeting, getSession } from "@/lib/api";
+import {
+  CAMERA_PROBLEM_TEXT,
+  DeviceProblem,
+  getLocalMedia,
+  stopStream,
+} from "@/lib/media";
 import { UNTITLED } from "@/lib/meetings";
 import { DEFAULT_CHOICES, PreJoinChoices, takePreJoinChoices } from "@/lib/prejoin";
 import {
@@ -74,6 +90,9 @@ const CONNECTION_NOTICE: Record<ConnectionStatus, string | null> = {
   refused: null,
 };
 
+/** Why the two controls that are not built yet are not built yet. */
+const NOT_YET = "Arrives with a later ticket";
+
 export function Room({ meetingUuid }: Props) {
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -95,6 +114,31 @@ export function Room({ meetingUuid }: Props) {
   const [status, setStatus] = useState<ConnectionStatus>("idle");
   const [statusDetail, setStatusDetail] = useState<string | null>(null);
 
+  // This person's own User id, which is how the room knows which entry in the
+  // participant list is *them*. Without it the local tile cannot be drawn and the
+  // two toggles have nothing to draw their pressed state from. A null id — the
+  // session call failed — leaves the room without a local tile rather than
+  // guessing at one, because a tile that might be somebody else is worse than
+  // no tile.
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+
+  // The real camera and microphone streams, and the reason there is no camera.
+  // A person who denied the camera or has none still has a room, an identity and
+  // a microphone, so the failure is drawn as a sentence on the local tile rather
+  // than as an absence — the same rule pre-join follows, applied to a different
+  // screen.
+  //
+  // **Two streams, not one.** `getLocalMedia` asks for the devices separately and
+  // gets back separate streams, which is the whole reason it does: one
+  // `getUserMedia({video, audio})` fails outright if *either* device is missing,
+  // and a laptop with no webcam would lose its microphone too. Holding them
+  // separately here is what lets the mute control silence a microphone that
+  // exists while the camera does not.
+  const [localVideo, setLocalVideo] = useState<MediaStream | null>(null);
+  const [localAudio, setLocalAudio] = useState<MediaStream | null>(null);
+  const [cameraProblem, setCameraProblem] = useState<DeviceProblem | null>(null);
+  const videoElement = useRef<HTMLVideoElement | null>(null);
+
   // What pre-join decided, read on arrival and then discarded. `null` means
   // nobody decided anything — this browser did not come through pre-join, which
   // is a reload of this URL rather than an error — and the room falls back to
@@ -106,11 +150,25 @@ export function Room({ meetingUuid }: Props) {
   // showing nobody's name would be worse than showing the one on the cookie.
   const [displayName, setDisplayName] = useState("");
 
+  // The live connection, in a ref as well as the effect that made it. The
+  // toggles are called from event handlers, which run long after the effect
+  // that opened the socket has returned, and a handler cannot reach a local of
+  // the effect it was defined in. A ref is the one place both can reach.
+  const connection = useRef<RoomConnection | null>(null);
+
+  // What pre-join recorded, consumed on arrival and kept here so the second run
+  // of a double-invoked effect reads the same value rather than nothing. `null`
+  // means pre-join recorded nothing — a reload of this URL, which is not an
+  // error — and the room falls back to defaults.
+  const prejoinDevices = useRef<PreJoinChoices | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     getSession()
       .then((session) => {
-        if (!cancelled) setDisplayName(session.display_name);
+        if (cancelled) return;
+        setDisplayName(session.display_name);
+        setMyUserId(session.id);
       })
       .catch(() => undefined);
     return () => {
@@ -118,20 +176,80 @@ export function Room({ meetingUuid }: Props) {
     };
   }, []);
 
+  // The local camera, asked for once on arrival and given back on the way out.
+  //
+  // Stopped on unmount because a stream left running keeps the camera light on
+  // after the person has left the room — and this screen is the one people leave
+  // by navigating away, which is exactly the case that leaks.
   useEffect(() => {
     let cancelled = false;
-    let connection: RoomConnection | null = null;
+    let video: MediaStream | null = null;
+    let audio: MediaStream | null = null;
 
-    // Taken once, on arrival, and only once. `takePreJoinChoices` deletes the
-    // entry as it reads it, so a reload finds nothing and a second meeting in
-    // this tab cannot inherit the first one's device state.
-    const stored = takePreJoinChoices(meetingUuid);
-    if (stored) setChoices(stored);
+    getLocalMedia()
+      .then((media) => {
+        if (cancelled) {
+          stopStream(media.video);
+          stopStream(media.audio);
+          return;
+        }
+        video = media.video;
+        audio = media.audio;
+        setLocalVideo(media.video);
+        setLocalAudio(media.audio);
+        setCameraProblem(media.cameraProblem);
+      })
+      .catch(() => undefined);
 
-    // Read once and passed straight through, rather than read from `choices`
-    // inside the callback below — a state value captured by that closure would
-    // still be the default, because the `setChoices` above has not rendered yet.
-    const devices = stored ?? DEFAULT_CHOICES;
+    return () => {
+      cancelled = true;
+      stopStream(video);
+      stopStream(audio);
+    };
+  }, []);
+
+  /**
+   * Hand the stream to the `<video>` once it exists.
+   *
+   * A ref callback rather than a `srcObject` prop, because the element and the
+   * stream arrive independently: the stream may be ready before React has
+   * rendered the tile, and `<video srcObject>` set once at mount would then be
+   * setting `null` and never corrected. A ref callback runs on mount and again
+   * whenever the callback identity changes, so the stream is attached whenever
+   * both exist — the same shape a hidden `<video>` in the pre-join preview uses.
+   */
+  const attachStream = useCallback((element: HTMLVideoElement | null) => {
+    videoElement.current = element;
+    if (element) element.srcObject = localVideo;
+  }, [localVideo]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    // Taken once, on arrival, and only once — **guarded by a ref rather than
+    // merely by being inside the effect body.**
+    //
+    // `takePreJoinChoices` deletes the entry as it reads it, which is what stops
+    // a second meeting in this tab inheriting the first one's device state. But
+    // React runs effects twice in development's StrictMode, so the second run
+    // finds nothing and falls back to the defaults. The symptom is subtle and
+    // looks like a server problem: a person who turned their camera off on the
+    // pre-join screen arrives broadcasting it, because the room sent
+    // `camera_on: true` on their behalf.
+    //
+    // The ref survives the double invocation — React re-runs effects on the same
+    // instance rather than mounting a new one — so the entry is taken on the
+    // first pass and only the first, and both passes read the same value out of
+    // `prejoinDevices` below.
+    if (!prejoinDevices.current) {
+      prejoinDevices.current = takePreJoinChoices(meetingUuid);
+      if (prejoinDevices.current) setChoices(prejoinDevices.current);
+    }
+
+    // Read from the ref rather than from `choices`: a state value captured by
+    // this closure would still be the default, because the `setChoices` above
+    // has not rendered yet.
+    const devices = prejoinDevices.current ?? DEFAULT_CHOICES;
 
     getMeeting(meetingUuid)
       .then((loaded) => {
@@ -145,7 +263,7 @@ export function Room({ meetingUuid }: Props) {
         // so opening it before the HTTP fetch would connect anonymously and be
         // refused (close code 4401). The fetch above is what mints a first-time
         // guest's cookie, so it is also what makes the socket possible.
-        connection = connectToRoom(
+        connection.current = connectToRoom(
           meetingUuid,
           {
             onParticipants: (arrived, arrivedCount) => {
@@ -177,9 +295,79 @@ export function Room({ meetingUuid }: Props) {
       // without this would leave a room trying to come back for a meeting the
       // person has left — a socket the server holds open, and a participant it
       // counts as present, for as long as the tab stayed in memory.
-      connection?.close();
+      connection.current?.close();
+      connection.current = null;
     };
   }, [meetingUuid]);
+
+  /**
+   * This person's own entry in the room, or `null` before the first broadcast.
+   *
+   * Everything about *their own* mute and camera state is read from here rather
+   * than from local state, because the server is the only thing that has told
+   * everybody else. A toolbar that showed a local guess would be a second
+   * source of truth about the same two booleans, and the moment the two
+   * disagreed — a reconnect, a dropped frame — the person would see themselves
+   * unmuted while a host sees them muted.
+   */
+  const me = participants.find((p) => p.user_id === myUserId) ?? null;
+  const myMuted = me ? me.is_muted : !choices.microphoneOn;
+  const myVideoOn = me ? me.is_video_on : choices.cameraOn;
+
+  // The tracks follow the toggles, not the other way round. If the room is
+  // showing somebody as unmuted, the microphone they are holding must be off —
+  // otherwise the room and the hardware disagree, and the person is broadcasting
+  // audio a host has been told is silent. Disabling the track rather than tearing
+  // the stream down is what makes a toggle instant and stops the browser asking
+  // for permission a second time when it is turned back on.
+  useEffect(() => {
+    localAudio?.getTracks().forEach((track) => {
+      track.enabled = !myMuted;
+    });
+  }, [localAudio, myMuted]);
+
+  useEffect(() => {
+    localVideo?.getVideoTracks().forEach((track) => {
+      track.enabled = myVideoOn;
+    });
+  }, [localVideo, myVideoOn]);
+
+  /**
+   * Press one of the two toggles.
+   *
+   * **The microphone case is the one to read twice.** `myMuted` is whether the
+   * room has you muted, and the thing sent over the wire is whether the *device*
+   * is on — the opposite sense. So muting means sending `microphone_on: false`,
+   * and since "currently not muted" is also `false`, the value to send is the
+   * current *muted* flag, not its negation.
+   *
+   * That is written out as a comment because getting it wrong is invisible: the
+   * button re-sends the value the server already holds, `set_device_state`
+   * correctly reports "nothing changed", no broadcast goes out, and the control
+   * simply does nothing. There is no error to trace it to and no failing request
+   * — the mute button is just dead. The camera branch is the ordinary one, the
+   * negation of its own current state.
+   *
+   * The track itself is disabled by the effects above, so the device genuinely
+   * stops rather than the room merely claiming it has.
+   *
+   * The optimistic local flip is deliberately absent. The button's pressed state
+   * comes from the server's answer, so it changes when the room agrees rather
+   * than when the key is pressed: a toggle that appeared to work and then
+   * silently reverted would be worse than one that takes the length of a round
+   * trip to change.
+   */
+  const toggleDevice = useCallback(
+    (which: "microphone" | "camera") => {
+      const next =
+        which === "microphone"
+          ? // Muting sends the current muted flag as the new device state.
+            { microphoneOn: myMuted, cameraOn: myVideoOn }
+          : { microphoneOn: !myMuted, cameraOn: !myVideoOn };
+      connection.current?.setDevices(next);
+    },
+    [myMuted, myVideoOn],
+  );
 
   async function copyInviteLink() {
     if (!meeting) return;
@@ -268,30 +456,81 @@ export function Room({ meetingUuid }: Props) {
             </p>
           ) : (
             <ul className={styles.tiles} data-testid="stage-tiles">
-              {participants.map((participant) => (
-                <li className={styles.tile} key={participant.user_id}>
-                  <span
-                    aria-hidden="true"
-                    className={styles.tileInitial}
-                    data-testid="tile-initial"
+              {participants.map((participant) => {
+                const isMe = participant.user_id === myUserId;
+                return (
+                  <li
+                    className={isMe ? styles.ownTile : styles.tile}
+                    key={participant.user_id}
+                    data-testid={isMe ? "own-tile" : "remote-tile"}
                   >
-                    {initialOf(participant.display_name)}
-                  </span>
-                  <span className={styles.tileName} data-testid="tile-name">
-                    {participant.display_name}
-                    {participant.is_host ? " (Host)" : ""}
-                  </span>
-                  {/* Said out loud, not implied by a grey rectangle. There is no
-                      peer-to-peer transport (ADR-0001), so a tile that looked
-                      like video would be the one genuinely misleading thing this
-                      screen could do. */}
-                  <span className={styles.tileSimulated} data-testid="tile-simulated">
-                    {participant.is_video_on
-                      ? "Camera simulated"
-                      : "Camera off"}
-                  </span>
-                </li>
-              ))}
+                    {/* The real camera, on this person's own tile and nowhere
+                        else. `muted` because a browser will not play a local
+                        stream back through the speakers, and without it the
+                        person hears themselves a half-second late, which reads
+                        as an echo in the room. */}
+                    {isMe && myVideoOn && localVideo ? (
+                      <video
+                        ref={attachStream}
+                        className={styles.ownVideo}
+                        data-testid="own-video"
+                        autoPlay
+                        playsInline
+                        muted
+                      />
+                    ) : (
+                      <span
+                        aria-hidden="true"
+                        className={styles.tileInitial}
+                        data-testid="tile-initial"
+                      >
+                        {initialOf(participant.display_name)}
+                      </span>
+                    )}
+
+                    <span className={styles.tileName} data-testid="tile-name">
+                      {participant.display_name}
+                      {isMe ? " (You)" : ""}
+                      {participant.is_host && !isMe ? " (Host)" : ""}
+                    </span>
+
+                    {participant.is_muted ? (
+                      <span
+                        className={styles.tileMuted}
+                        data-testid="tile-muted"
+                        title="Muted"
+                      >
+                        Muted
+                      </span>
+                    ) : null}
+
+                    {/* Why there is no picture of somebody else, in words. No
+                        peer-to-peer transport exists (ADR-0001), so a remote
+                        tile that looked like video would be the one genuinely
+                        misleading thing this screen could do — and unlike the
+                        local tile, which is a real stream, nothing here can
+                        become real later without a rewrite. */}
+                    {!isMe ? (
+                      <span
+                        className={styles.tileSimulated}
+                        data-testid="tile-simulated"
+                      >
+                        {participant.is_video_on
+                          ? "Camera simulated"
+                          : "Camera off"}
+                      </span>
+                    ) : cameraProblem ? (
+                      <span
+                        className={styles.tileSimulated}
+                        role="status"
+                        data-testid="local-camera-notice"
+                      >
+                        {CAMERA_PROBLEM_TEXT[cameraProblem]}
+                      </span>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>
@@ -329,6 +568,7 @@ export function Room({ meetingUuid }: Props) {
                   data-testid="participant-name"
                 >
                   {participant.display_name}
+                  {participant.user_id === myUserId ? " (You)" : ""}
                 </span>
                 {participant.is_host ? (
                   <span className={styles.rowHost} data-testid="participant-host">
@@ -353,6 +593,110 @@ export function Room({ meetingUuid }: Props) {
             </p>
           ) : null}
         </aside>
+      </div>
+
+      {/* The toolbar, in the reference's arrangement: left, centre, right rather
+          than evenly spaced. The grouping is the point — Zoom's controls are
+          clustered by how often they are used, so the two controls pressed
+          constantly are under the hand and the destructive one is as far away
+          from them as the width allows. */}
+      <div className={styles.toolbar} data-testid="toolbar">
+        <div className={styles.toolbarGroup}>
+          {/* `aria-pressed` rather than a class, because the state of a toggle
+              has to be readable by something that is not looking at the pixels —
+              a screen reader, and a test. */}
+          <button
+            type="button"
+            className={myMuted ? styles.controlActive : styles.control}
+            aria-pressed={myMuted}
+            aria-label={myMuted ? "Unmute" : "Mute"}
+            title={myMuted ? "Unmute" : "Mute"}
+            onClick={() => toggleDevice("microphone")}
+            data-testid="toggle-microphone"
+          >
+            <span aria-hidden="true" className={styles.controlIcon}>
+              {myMuted ? "🔇" : "🎙"}
+            </span>
+            <span className={styles.controlLabel}>
+              {myMuted ? "Unmute" : "Mute"}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            className={myVideoOn ? styles.control : styles.controlActive}
+            aria-pressed={!myVideoOn}
+            aria-label={myVideoOn ? "Turn camera off" : "Turn camera on"}
+            title={myVideoOn ? "Turn camera off" : "Turn camera on"}
+            onClick={() => toggleDevice("camera")}
+            data-testid="toggle-camera"
+          >
+            <span aria-hidden="true" className={styles.controlIcon}>
+              {myVideoOn ? "🎥" : "🚫"}
+            </span>
+            <span className={styles.controlLabel}>Video</span>
+            {/* A chevron, because the reference carries one on controls that open
+                a submenu — device selection, which this build does not have. It
+                is drawn rather than omitted so the toolbar reads as the same
+                family of surface, and so the later ticket that adds it has
+                somewhere to put the menu. */}
+            <span aria-hidden="true" className={styles.chevron}>
+              ⌄
+            </span>
+          </button>
+        </div>
+
+        <div className={styles.toolbarGroup}>
+          <span className={styles.controlStatic} data-testid="participants-control">
+            <span className={styles.controlBadge} data-testid="participants-badge">
+              {count}
+            </span>
+            <span className={styles.controlLabel}>Participants</span>
+          </span>
+
+          {/* Chat is ticket 09 and End is ticket 10. They are drawn where the
+              reference puts them — so the toolbar is the same shape a reviewer
+              is comparing against — but disabled, with the reason in `title` and
+              on the control's accessible description. A live-looking button that
+              does nothing is worse than an absent one, and a toolbar of dead
+              buttons reads as a broken build rather than as work in progress. */}
+          <button
+            type="button"
+            className={styles.control}
+            disabled
+            title={NOT_YET}
+            aria-label={`Chat (${NOT_YET})`}
+            data-testid="chat-toggle"
+          >
+            <span aria-hidden="true" className={styles.controlIcon}>
+              💬
+            </span>
+            <span className={styles.controlLabel}>Chat</span>
+            <span aria-hidden="true" className={styles.chevron}>
+              ⌄
+            </span>
+          </button>
+        </div>
+
+        {/* Alone at the far right, in the destructive colour, and host-only.
+            The cost of pressing it is the meeting, so it is separated by every
+            available means: distance, colour, and a confirmation that arrives
+            with ticket 10. */}
+        {meeting.is_host ? (
+          <button
+            type="button"
+            className={styles.endMeeting}
+            disabled
+            title={NOT_YET}
+            aria-label={`End meeting (${NOT_YET})`}
+            data-testid="end-meeting"
+          >
+            <span aria-hidden="true" className={styles.controlIcon}>
+              ⏹
+            </span>
+            <span className={styles.controlLabel}>End</span>
+          </button>
+        ) : null}
       </div>
 
       {/* Who you are, and how to let anyone else in. The Meeting ID is shown to

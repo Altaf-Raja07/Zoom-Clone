@@ -169,11 +169,43 @@
   font-weight: var(--font-weight-semibold);
 }
 
+/*
+ * The local tile. A distinct class rather than a modifier on `.tile`, because it
+ * has to be *visibly* a different kind of tile: this one carries a real camera
+ * stream and every other one does not, and ADR-0001 makes that difference a
+ * design constraint rather than a limitation to be smoothed over. The accent
+ * border is the second signal, for a viewer who cannot read the "You" label.
+ */
+.ownTile {
+  composes: tile;
+  border-color: var(--action-primary-bg);
+}
+
+.ownVideo {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-md);
+  /* The camera is mirrored, as every video call mirrors it. A person checking
+     their own framing expects to see themselves the way a mirror shows them;
+     an unmirrored preview reads as "something is wrong with my face". */
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
 .tileName {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
   text-align: center;
   overflow-wrap: anywhere;
+}
+
+.tileMuted {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--status-muted-bg);
+  color: var(--status-muted-fg);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
 }
 
 /* The honesty line. There is no peer-to-peer transport (ADR-0001), so a tile
@@ -380,6 +412,140 @@
 
 .copyError {
   color: var(--status-error-fg);
+}
+
+/* --- The toolbar ---------------------------------------------------------- */
+
+/*
+ * Left, centre, right. The grouping is the point: the reference clusters
+ * controls by how often they are used, so the two pressed constantly sit under
+ * the hand and the destructive one is as far from them as the width allows.
+ * A single centred row of evenly spaced controls would look tidier and be
+ * wrong — it puts the least-used controls nearest the most-used ones.
+ */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-toolbar);
+  border-top: 1px solid var(--border-on-dark);
+}
+
+.toolbarGroup {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.control,
+.controlActive,
+.controlStatic,
+.endMeeting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 3.5rem;
+  min-height: var(--size-control-height);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-on-dark-primary);
+  font-family: inherit;
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.control:hover:not(:disabled),
+.controlActive:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.control:focus-visible,
+.controlActive:focus-visible,
+.endMeeting:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/*
+ * The "this is on" state, drawn as a filled surface rather than a colour change
+ * on the icon. Muted is the one piece of state in a meeting a person must be
+ * able to check at a glance across a room, so it is a panel rather than a tint.
+ */
+.controlActive {
+  background: var(--surface-hover);
+}
+
+.controlIcon {
+  font-size: var(--font-size-lg);
+  line-height: var(--line-height-tight);
+}
+
+.controlLabel {
+  white-space: nowrap;
+  font-size: var(--font-size-xs);
+}
+
+/*
+ * The chevron the reference carries on controls that open a submenu. Drawn now,
+ * with nothing behind it, so the toolbar reads as the same family of surface as
+ * the reference a reviewer is comparing against — and so the ticket that adds
+ * device selection has somewhere to put its menu.
+ */
+.chevron {
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-tight);
+  color: var(--text-on-dark-secondary);
+}
+
+.controlStatic {
+  cursor: default;
+}
+
+/* The attendee count from the reference, as a badge on the control. */
+.controlBadge {
+  display: grid;
+  place-items: center;
+  min-width: var(--size-avatar-sm);
+  height: var(--size-avatar-sm);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-pill);
+  background: var(--action-primary-bg);
+  color: var(--action-primary-text);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A control that exists but is not built yet. Dimmed rather than hidden, so the
+   toolbar's shape still matches the reference and the reason is legible. */
+.control:disabled,
+.endMeeting:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/*
+ * End, alone at the far right, in the destructive colour.
+ *
+ * Isolated on every axis available: distance from the other controls (the
+ * `space-between`), a colour nothing else on this screen uses, and a shape that
+ * is not the same pill as its neighbours. The cost of pressing it is the
+ * meeting, so it should not be reachable by a thumb that was aiming next door.
+ */
+.endMeeting {
+  background: var(--action-destructive-bg);
+  color: var(--action-destructive-text);
+  font-weight: var(--font-weight-semibold);
+}
+
+.endMeeting:hover:not(:disabled) {
+  background: var(--action-destructive-bg-hover);
 }
 
 /* --- The states that are not the room ------------------------------------- */

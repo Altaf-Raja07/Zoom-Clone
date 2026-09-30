@@ -23,7 +23,7 @@ ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
 
 # Imported at module scope so the process-wide settings and engine can be reset
 # between tests without each test reaching into `app` itself.
-from app.config import reset_settings  # noqa: E402
+from app.config import COOKIE_NAME, reset_settings  # noqa: E402
 from app.db import get_engine, reset_engine  # noqa: E402
 from app.join_codes import generate_join_code  # noqa: E402
 from app.main import create_app  # noqa: E402
@@ -65,6 +65,112 @@ class Session:
         self._client.__exit__(None, None, None)
 
     def __enter__(self) -> "Session":
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.close()
+
+
+class Cast:
+    """Several people in one browser, switchable at will.
+
+    **One `TestClient` holding several identities, rather than several clients
+    holding one each, and the reason is the event loop.** Every `TestClient` runs
+    its own portal, so a broadcast delivered from one client's socket to
+    another's crosses event loops. Through Starlette's in-memory WebSocket
+    streams the *first* such delivery works and a later one can stall the reader
+    with no error and no exception — a test that hangs rather than fails, with
+    nothing pointing at the cause.
+
+    Production is one process with one loop holding many sockets, so a single
+    client is *closer* to the real thing rather than further from it: one loop,
+    one hub, several connections, exactly as deployed (ADR-0002 is what makes one
+    loop a requirement rather than a convenience).
+
+    Two identities are two signed cookies, so "acting as somebody" is a cookie
+    swap. Every cookie is minted by the API itself through a normal request, and
+    none is signed here — so this harness cannot drift into a way of *forging* an
+    identity, which is the one shortcut a multi-person harness must not have.
+    """
+
+    def __init__(self, app, names: list[str]) -> None:
+        self._client = TestClient(app)
+        self._client.__enter__()
+        self._cookies: dict[str, str] = {}
+        self._sockets: list = []
+        self.user_ids: dict[str, str] = {}
+
+        for name in names:
+            # A cleared jar makes the next request a first visit, which is how a
+            # second person in one browser comes into being.
+            self._client.cookies.clear()
+            self._client.patch("/api/session", json={"display_name": name})
+            cookie = self._client.cookies.get(COOKIE_NAME)
+            assert cookie, f"the API did not set an identity cookie for {name}"
+            self._cookies[name] = cookie
+            self.user_ids[name] = self._client.get("/api/session").json()["id"]
+
+        self.current = names[0]
+        self._activate()
+
+    def _activate(self) -> None:
+        self._client.cookies.clear()
+        self._client.cookies.set(COOKIE_NAME, self._cookies[self.current])
+
+    def as_(self, name: str) -> "Cast":
+        """Act as somebody else from the next request onwards.
+
+        Returns `self` so a call can be prefixed onto a chain, and so that a test
+        line reads as "Priya does this" rather than as two statements.
+        """
+        self.current = name
+        self._activate()
+        return self
+
+    def get(self, url: str):
+        return self._client.get(url)
+
+    def post(self, url: str, **kwargs):
+        return self._client.post(url, **kwargs)
+
+    def websocket(self, url: str):
+        """A socket for whoever is currently active, entered and tracked.
+
+        Identity is bound when the socket is admitted, so this is a snapshot of
+        `current` at the moment of connecting — switching afterwards does not
+        change who an open socket belongs to, exactly as in a browser.
+
+        Entered here rather than left to the caller, because a socket that is
+        opened but never closed keeps its server-side handler alive, and
+        `TestClient.__exit__` joins the portal thread that handler is running on.
+        So an unclosed socket does not fail the test that leaked it — it *hangs*
+        the run, with the stack pointing at thread cleanup and nothing at all
+        pointing at the socket. Tracking them here means closing the `Cast` is
+        always enough, and a test cannot accidentally leave one behind.
+        """
+        session = self._client.websocket_connect(url)
+        session.__enter__()
+        self._sockets.append(session)
+        return session
+
+    def forget(self, session) -> None:
+        """Drop a socket the caller has already closed, so `close` skips it.
+
+        A test that closes a socket to make a *departure happen at that moment*
+        would otherwise have it closed a second time by the harness, which is
+        harmless here but reads as two departures and hides which one a test was
+        actually about.
+        """
+        if session in self._sockets:
+            self._sockets.remove(session)
+
+    def close(self) -> None:
+        for session in self._sockets:
+            session.__exit__(None, None, None)
+        self._sockets.clear()
+        self._client.__exit__(None, None, None)
+
+    def __enter__(self) -> "Cast":
         return self
 
     def __exit__(self, *exc_info) -> None:
