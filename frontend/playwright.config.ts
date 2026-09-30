@@ -21,7 +21,12 @@
 
 import { defineConfig, devices } from "@playwright/test";
 
-const FRONTEND_PORT = 3100;
+// Both ports are overridable so two worktrees can run the browser suite at
+// the same time. They collide on the defaults otherwise, and the collision
+// looks like a test failure — the second run silently borrows the first
+// run's servers through `reuseExistingServer` and then fails against code
+// that is not its own.
+const FRONTEND_PORT = Number(process.env.MEETLY_TEST_FRONTEND_PORT ?? 3100);
 const BACKEND_PORT = Number(process.env.MEETLY_TEST_BACKEND_PORT ?? 8000);
 const FRONTEND_ORIGIN = `http://localhost:${FRONTEND_PORT}`;
 
@@ -40,6 +45,7 @@ export default defineConfig({
         // unset it falls back to port 8000 in `src/lib/api.ts`, which silently
         // points a run on any other port at whatever else is listening there.
         NEXT_PUBLIC_API_BASE_URL: `http://localhost:${BACKEND_PORT}`,
+        PORT: String(FRONTEND_PORT),
       },
     },
     {
