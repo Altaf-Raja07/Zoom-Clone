@@ -237,11 +237,7 @@ export function connectToRoom(
       // database would record everybody as unmuted with their camera on, while
       // the room showed the person their own opposite choice — two truths about
       // one person, and the mute badge is the one that gets believed.
-      send({
-        type: "state",
-        microphone_on: devices.microphoneOn,
-        camera_on: devices.cameraOn,
-      });
+      sendDevices(devices);
 
       // One ping immediately, so the round trip is proven while somebody is
       // still watching, and the interval then carries the keep-alive. Waiting
@@ -309,6 +305,21 @@ export function connectToRoom(
     };
   }
 
+  /**
+   * Send a device state.
+   *
+   * One place that knows what a `state` frame looks like, because it is written
+   * in two places — once on open, once per toggle — and a frame that grew a
+   * field in one of them would be silently ignored by the server in the other.
+   */
+  function sendDevices(devices: RoomDevices) {
+    send({
+      type: "state",
+      microphone_on: devices.microphoneOn,
+      camera_on: devices.cameraOn,
+    });
+  }
+
   function send(message: unknown) {
     if (socket?.readyState !== WebSocket.OPEN) return;
     socket.send(JSON.stringify(message));
@@ -340,12 +351,8 @@ export function connectToRoom(
   open();
 
   return {
-    setDevices(devices: RoomDevices) {
-      send({
-        type: "state",
-        microphone_on: devices.microphoneOn,
-        camera_on: devices.cameraOn,
-      });
+    setDevices(next: RoomDevices) {
+      sendDevices(next);
     },
     close() {
       closed = true;

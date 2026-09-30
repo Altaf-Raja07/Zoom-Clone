@@ -23,9 +23,19 @@ import { Browser, BrowserContext, Page, expect, test } from "@playwright/test";
 
 import { HEARTBEAT_INTERVAL_MS } from "../src/lib/realtime";
 
-/** The backend's own origin, for the one test that needs a Meeting with a title. */
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+/**
+ * The backend's own origin, for the tests that book a Meeting over the API
+ * rather than through the UI.
+ *
+ * Derived from **the same env var the Playwright config uses**, not from
+ * `NEXT_PUBLIC_API_BASE_URL`, which is set for the *dev server* and never for the
+ * test process. Reading it here looked right and was: under a port override the
+ * spec quietly talked to whatever else was listening on 8000, and the failures
+ * that produced were about a Meeting that did not exist.
+ */
+const API_BASE_URL = `http://localhost:${
+  process.env.MEETLY_TEST_BACKEND_PORT ?? 8000
+}`;
 
 /**
  * A host who has created a Meeting and walked to the pre-join screen, in their

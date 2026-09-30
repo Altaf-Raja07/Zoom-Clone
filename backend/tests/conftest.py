@@ -98,17 +98,17 @@ class Cast:
         self._client.__enter__()
         self._cookies: dict[str, str] = {}
         self._sockets: list = []
-        self.user_ids: dict[str, str] = {}
 
         for name in names:
             # A cleared jar makes the next request a first visit, which is how a
-            # second person in one browser comes into being.
+            # second person in one browser comes into being. One request per
+            # person: the cookie is the whole of the identity, so there is
+            # nothing to fetch afterwards.
             self._client.cookies.clear()
             self._client.patch("/api/session", json={"display_name": name})
             cookie = self._client.cookies.get(COOKIE_NAME)
             assert cookie, f"the API did not set an identity cookie for {name}"
             self._cookies[name] = cookie
-            self.user_ids[name] = self._client.get("/api/session").json()["id"]
 
         self.current = names[0]
         self._activate()

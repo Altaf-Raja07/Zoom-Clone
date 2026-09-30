@@ -333,23 +333,32 @@ export function Room({ meetingUuid }: Props) {
   }, [localVideo, myVideoOn]);
 
   /**
+   * This person's devices as the wire describes them: **on**, not muted.
+   *
+   * The room's own vocabulary is the opposite — `myMuted` says whether the room
+   * has you muted, and `is_muted` is what every other participant is shown. So
+   * this is the one place the inversion is written down, and every consumer
+   * below speaks the device's language instead of the room's.
+   *
+   * It matters because the inversion is the exact thing that is easy to get
+   * backwards. An earlier version of the mute control sent `microphone_on:
+   * myMuted` directly, which is *correct* and reads like a bug — and the next
+   * version "fixed" it to `!myMuted`, which silently broke the button: the value
+   * sent was always the one the server already held, `set_device_state` reported
+   * no change, nothing was broadcast, and the control did nothing at all. No
+   * error, no failing request — a dead button. Converting once, here, means the
+   * toggles below only ever negate their own field.
+   */
+  const liveDevices = { microphoneOn: !myMuted, cameraOn: myVideoOn };
+
+  /**
    * Press one of the two toggles.
    *
-   * **The microphone case is the one to read twice.** `myMuted` is whether the
-   * room has you muted, and the thing sent over the wire is whether the *device*
-   * is on — the opposite sense. So muting means sending `microphone_on: false`,
-   * and since "currently not muted" is also `false`, the value to send is the
-   * current *muted* flag, not its negation.
+   * Each branch negates the field it owns and leaves the other alone, so there
+   * is no arithmetic across the two vocabularies to get wrong.
    *
-   * That is written out as a comment because getting it wrong is invisible: the
-   * button re-sends the value the server already holds, `set_device_state`
-   * correctly reports "nothing changed", no broadcast goes out, and the control
-   * simply does nothing. There is no error to trace it to and no failing request
-   * — the mute button is just dead. The camera branch is the ordinary one, the
-   * negation of its own current state.
-   *
-   * The track itself is disabled by the effects above, so the device genuinely
-   * stops rather than the room merely claiming it has.
+   * The *track* is disabled by the effects above, so the device genuinely stops
+   * rather than the room merely claiming it has.
    *
    * The optimistic local flip is deliberately absent. The button's pressed state
    * comes from the server's answer, so it changes when the room agrees rather
@@ -359,14 +368,13 @@ export function Room({ meetingUuid }: Props) {
    */
   const toggleDevice = useCallback(
     (which: "microphone" | "camera") => {
-      const next =
+      connection.current?.setDevices(
         which === "microphone"
-          ? // Muting sends the current muted flag as the new device state.
-            { microphoneOn: myMuted, cameraOn: myVideoOn }
-          : { microphoneOn: !myMuted, cameraOn: !myVideoOn };
-      connection.current?.setDevices(next);
+          ? { ...liveDevices, microphoneOn: !liveDevices.microphoneOn }
+          : { ...liveDevices, cameraOn: !liveDevices.cameraOn },
+      );
     },
-    [myMuted, myVideoOn],
+    [liveDevices.microphoneOn, liveDevices.cameraOn],
   );
 
   async function copyInviteLink() {
@@ -575,6 +583,12 @@ export function Room({ meetingUuid }: Props) {
                     Host
                   </span>
                 ) : null}
+                {/* Both states, not just the loud one. The checklist asks for
+                    status indicators, and a host reading this panel is asking
+                    two questions: who can hear me, and who can see me. Muting
+                    is the one people notice, which is exactly why the camera
+                    needs saying out loud too — a silently dark camera is
+                    indistinguishable from a broken one. */}
                 {participant.is_muted ? (
                   <span
                     className={styles.rowMuted}
@@ -584,6 +598,21 @@ export function Room({ meetingUuid }: Props) {
                     Muted
                   </span>
                 ) : null}
+                <span
+                  className={
+                    participant.is_video_on
+                      ? styles.rowCameraOn
+                      : styles.rowMuted
+                  }
+                  data-testid="participant-camera"
+                  title={
+                    participant.is_video_on
+                      ? "Camera on"
+                      : "Camera off"
+                  }
+                >
+                  {participant.is_video_on ? "Camera" : "No camera"}
+                </span>
               </li>
             ))}
           </ul>
@@ -710,14 +739,20 @@ export function Room({ meetingUuid }: Props) {
           <p className={styles.youName} data-testid="your-name">
             {displayName}
           </p>
+          {/* The same two booleans the toolbar is showing, read from the same
+              source. This used to render pre-join's snapshot, which is right
+              until the moment somebody presses mute: the toolbar would say
+              "Unmute" and the line directly beneath it would say Microphone
+              "On". Two truths about one person's own hardware, on one screen,
+              with the toolbar contradicting the text next to it. */}
           <dl className={styles.devices}>
             <dt>Camera</dt>
             <dd data-testid="room-camera-state">
-              {choices.cameraOn ? "On" : "Off"}
+              {myVideoOn ? "On" : "Off"}
             </dd>
             <dt>Microphone</dt>
             <dd data-testid="room-microphone-state">
-              {choices.microphoneOn ? "On" : "Off"}
+              {myMuted ? "Off" : "On"}
             </dd>
           </dl>
         </div>

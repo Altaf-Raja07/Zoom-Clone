@@ -186,6 +186,55 @@ test("a remote tile never carries a video element, and says why", async ({
   await host.context.close();
 });
 
+test("the panel carries both status indicators, not just the loud one", async ({
+  browser,
+}) => {
+  const host = await hostInRoom(browser);
+  const guest = await guestInRoom(browser, host.invitePath, "Priya");
+  await expect(host.page.getByTestId("participant-name")).toHaveCount(2);
+
+  // A host reading this panel is asking two questions: who can hear me, and who
+  // can see me. On a machine with no devices both answers are "no" for both
+  // people, which is the case where saying only the loud one (muted) would
+  // leave a silently dark camera indistinguishable from a broken one.
+  const hostRow = host.page
+    .getByTestId("participant-row")
+    .filter({ hasText: "Altaf" });
+  const guestRow = host.page
+    .getByTestId("participant-row")
+    .filter({ hasText: "Priya" });
+
+  await expect(hostRow.getByTestId("participant-camera")).toBeVisible();
+  await expect(guestRow.getByTestId("participant-camera")).toBeVisible();
+  await expect(hostRow.getByTestId("participant-muted")).toBeVisible();
+  await expect(hostRow.getByTestId("participant-camera")).toHaveText("No camera");
+
+  await guest.context.close();
+  await host.context.close();
+});
+
+test("the footer does not contradict the toolbar", async ({ browser }) => {
+  const host = await hostInRoom(browser);
+  const footer = host.page.getByTestId("room-microphone-state");
+
+  // The footer's device line used to render pre-join's snapshot, so pressing mute
+  // left the toolbar reading "Unmute" and the text directly beneath it reading
+  // Microphone "On". Asserted as a pair so a future second source of truth has
+  // to fail *here* rather than being noticed by a person.
+  const button = host.page.getByTestId("toggle-microphone");
+  const before = await button.getAttribute("aria-pressed");
+
+  await button.click();
+  await expect(button).toHaveAttribute(
+    "aria-pressed",
+    before === "true" ? "false" : "true",
+  );
+
+  await expect(footer).toHaveText(before === "true" ? "On" : "Off");
+
+  await host.context.close();
+});
+
 test("a person with no devices is still in the room, and still identifiable", async ({
   browser,
 }) => {

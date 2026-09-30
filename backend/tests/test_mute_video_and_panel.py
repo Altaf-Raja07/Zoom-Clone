@@ -119,18 +119,26 @@ def snapshot(socket) -> dict[str, dict]:
 
 
 def state(socket, *, microphone_on: bool, camera_on: bool) -> None:
-    """Say what this person's devices are doing, as the toolbar will."""
+    """Say what this person's devices are doing, as the toolbar will.
+
+    **Both booleans, every time**, because the message is a whole state rather
+    than a delta. A helper called `mute` that quietly set the camera on would
+    make a reader believe the test was about one device, and would quietly change
+    the other.
+    """
     socket.send_json(
         {"type": "state", "microphone_on": microphone_on, "camera_on": camera_on}
     )
 
 
-def mute(socket) -> None:
-    state(socket, microphone_on=False, camera_on=True)
+def mute(socket, *, camera_on: bool = True) -> None:
+    """Mute, leaving the camera as the test asks."""
+    state(socket, microphone_on=False, camera_on=camera_on)
 
 
-def camera_off(socket) -> None:
-    state(socket, microphone_on=True, camera_on=False)
+def camera_off(socket, *, microphone_on: bool = True) -> None:
+    """Turn the camera off, leaving the microphone as the test asks."""
+    state(socket, microphone_on=microphone_on, camera_on=False)
 
 
 def test_muting_is_visible_to_everybody_else_without_a_refresh(room: Cast):

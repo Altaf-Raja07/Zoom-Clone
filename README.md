@@ -33,11 +33,16 @@ surfaces designed without a reference screenshot — see the honesty notes below
 first person sees you appear in their participant list, with a count on the
 title bar, without refreshing — one WebSocket per person over an in-process
 broadcast hub. Leaving stamps a timestamp, and a past attendee does not reappear.
-The room's own stage is dark, matching the Zoom Workplace screenshots, and it
-carries the Meeting's title, the participant list, each person's name, and the
-camera and microphone state that person chose on pre-join. It has **no toolbar,
-no mute control, no local camera, no chat and no leave button yet** — those are
-tickets 08 to 10, each of which is behaviour rather than styling.
+The room's own stage is dark, matching the Zoom Workplace screenshots, and its
+toolbar follows the reference's left / centre / right arrangement with the
+destructive end-meeting control alone at the far right. Mute and video are real
+in both directions: pressing mute in one browser changes the other person's tile
+and panel row, and a person with no camera or microphone is still listed, named
+and able to participate. You see your own camera as a live preview; everybody
+else is a labelled placeholder, because there is no peer-to-peer transport and a
+tile that looked like live video would be a lie. It has **no chat, no leave and
+no end-meeting behaviour yet** — those are tickets 09 and 10, and the two
+controls are present but disabled rather than drawn and dead.
 
 ## Seeing a populated dashboard
 

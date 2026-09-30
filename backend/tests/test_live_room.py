@@ -102,54 +102,6 @@ class TwoPeople:
         self.guest.patch("/api/session", json={"display_name": "Priya"})
         self._sockets = []
 
-    def open_all(self) -> list:
-        """A socket for each person, in the Meeting, with every backlog read.
-
-        Returned as a list because almost every assertion in this file is about
-        one person's change reaching the *other* person's socket, and the
-        broadcasts that arrive while the room fills are noise in the middle of
-        that.
-
-        **Every backlogged message is drained, not just one.** A socket receives
-        a broadcast for its own arrival and another for the next person's, so the
-        first person to connect has two queued before anything is asserted. A
-        helper that read one would leave the second sitting there, and the first
-        assertion in a test would silently be about the *previous* event — which
-        is how a test asserting "the room did not change" comes to pass because
-        it read a stale join instead of a broadcast that never came.
-        """
-        sockets = [self.socket(self.host), self.socket(self.guest)]
-        for socket in sockets:
-            self.settle(socket, expected=2)
-        return sockets
-
-    @staticmethod
-    def settle(socket, expected: int, limit: int = 5) -> dict:
-        """Read messages until the room reports `expected` people; return the last.
-
-        Bounded, so a room broadcasting in a loop fails the test with a clear
-        message instead of hanging until the suite's timeout.
-        """
-        message: dict = {}
-        for _ in range(limit):
-            message = socket.receive_json()
-            assert message["type"] == "participants", message
-            if message["count"] == expected:
-                return message
-        raise AssertionError(
-            f"the room never settled at {expected} people; last message was "
-            f"count={message.get('count')}"
-        )
-
-    @staticmethod
-    def listed(socket, name: str) -> dict:
-        """One person, as the most recent message described them."""
-        message = socket.receive_json()
-        assert message["type"] == "participants"
-        matches = [p for p in message["participants"] if p["display_name"] == name]
-        assert len(matches) == 1, f"expected exactly one {name}, got {matches}"
-        return matches[0]
-
     def socket(self, who: Session):
         """Open a WebSocket as this person, in the Meeting.
 

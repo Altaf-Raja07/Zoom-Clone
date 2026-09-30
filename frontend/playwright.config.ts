@@ -21,11 +21,16 @@
 
 import { defineConfig, devices } from "@playwright/test";
 
-// Both ports are overridable so two worktrees can run the browser suite at
-// the same time. They collide on the defaults otherwise, and the collision
-// looks like a test failure — the second run silently borrows the first
-// run's servers through `reuseExistingServer` and then fails against code
-// that is not its own.
+// Both ports are overridable, so a run can be pointed somewhere other than the
+// defaults — at a second worktree, or away from whatever else already holds
+// 8000 on this machine. The collision that makes this necessary looks like a
+// test failure: `reuseExistingServer` sees *something* answering on the port,
+// reuses it, and then the run fails against code that is not its own.
+//
+// Note what this does **not** isolate: `MEETLY_DATABASE_PATH` and
+// `MEETLY_COOKIE_SECRET` below are still the defaults, so two concurrent runs
+// share one database. Separate the ports *and* those two before running two
+// suites at once, or they will interleave rows.
 const FRONTEND_PORT = Number(process.env.MEETLY_TEST_FRONTEND_PORT ?? 3100);
 const BACKEND_PORT = Number(process.env.MEETLY_TEST_BACKEND_PORT ?? 8000);
 const FRONTEND_ORIGIN = `http://localhost:${FRONTEND_PORT}`;

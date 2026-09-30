@@ -148,59 +148,37 @@ test.describe("mute and video, between two browsers", () => {
   test("a device turned off on pre-join is off in the room too", async ({
     browser,
   }) => {
-    const context = await browser.newContext();
-    const page = await context.newPage();
-    await page.goto("/");
-    await page.getByRole("button", { name: "New Meeting" }).click();
-    await expect(page).toHaveURL(/\/prejoin\/[0-9a-f-]{36}$/);
-    // Named, because a generated default would make the guest's room below
-    // unidentifiable — the assertions are by name, and a name nobody chose is
-    // exactly the thing this file's other half exists to check.
-    await page.getByTestId("display-name").fill("Altaf");
+    // Both devices are on by default with a fake device present, so **turning
+    // one off is the only thing that distinguishes this from arriving with the
+    // defaults** — which is why this test exists rather than being left to the
+    // "camera on" assertions elsewhere. Every other test in this file would pass
+    // with the room ignoring pre-join's record entirely, because the recorded
+    // value and the fallback happen to be the same.
+    const host = await hostInRoom(browser, "Altaf", async (page) => {
+      await page.getByTestId("toggle-camera").click();
+      await expect(page.getByTestId("toggle-camera")).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+    });
 
-    // Both devices are on by default here, so **turning one off is the only
-    // thing that distinguishes this from arriving with the defaults** — which is
-    // why this test exists rather than being left to the "camera on" assertions
-    // elsewhere. Every other test in this file would pass with the room ignoring
-    // pre-join's record entirely, because the recorded value and the fallback
-    // happen to be the same.
-    await page.getByTestId("toggle-camera").click();
-    await expect(page.getByTestId("toggle-camera")).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
+    // The room draws the person with no camera…
+    await expect(host.page.getByTestId("own-video")).toHaveCount(0);
+    // …and the footer, which used to be a stale second answer to the same
+    // question, agrees with the toolbar.
+    await expect(host.page.getByTestId("room-camera-state")).toHaveText("Off");
 
-    await page.getByTestId("join-button").click();
-    await expect(page).toHaveURL(/\/room\//);
+    const guest = await guestInRoom(browser, host.invitePath, "Priya");
 
-    // The room draws the person with no camera, and — the part that matters —
-    // tells the *server* so, which is the claim another browser reads.
-    await expect(page.getByTestId("own-video")).toHaveCount(0);
-    const row = page.getByTestId("participant-row").filter({ hasText: "Altaf" });
-    await expect(row).toBeVisible();
-
-    const guest = await browser.newContext();
-    const guestPage = await guest.newPage();
-    // The host's Invite Link is the only way in, and it is rendered host-only.
-    const hostInvite =
-      (await page.getByTestId("invite-path").textContent()) ?? "";
-    await guestPage.goto(hostInvite);
-    await guestPage.getByTestId("join-button").click();
-    await expect(guestPage).toHaveURL(/\/prejoin\//);
-    await guestPage.getByTestId("display-name").fill("Priya");
-    await guestPage.getByTestId("join-button").click();
-    await expect(guestPage).toHaveURL(/\/room\//);
-
-    // In the guest's room, the host's tile says the camera is off. If the room
-    // had fallen back to the defaults, the server would have recorded the host
-    // as broadcasting and this would read "Camera simulated".
-    const hostTile = guestPage.getByTestId("remote-tile").filter({
+    // In the guest's room, the host's tile says the camera is off — the claim
+    // that matters, because it can only be true if the room told the *server*.
+    const hostTile = guest.page.getByTestId("remote-tile").filter({
       hasText: "Altaf",
     });
     await expect(hostTile.getByTestId("tile-simulated")).toHaveText("Camera off");
 
-    await guest.close();
-    await context.close();
+    await guest.context.close();
+    await host.context.close();
   });
 
   test("the viewer sees their own camera, and only their own", async ({ browser }) => {

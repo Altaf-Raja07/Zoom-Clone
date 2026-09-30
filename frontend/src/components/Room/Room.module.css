@@ -290,7 +290,8 @@
 }
 
 .rowHost,
-.rowMuted {
+.rowMuted,
+.rowCameraOn {
   flex: none;
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
@@ -305,6 +306,16 @@
 .rowMuted {
   background: var(--status-muted-bg);
   color: var(--status-muted-fg);
+}
+
+/*
+ * The camera indicator. Quieter than the mute badge on purpose: it is
+ * information rather than an exception, and a panel where every row shouts is a
+ * panel nobody reads. Muted wins the eye because it is the one people act on.
+ */
+.rowCameraOn {
+  background: var(--surface-hover);
+  color: var(--text-on-dark-secondary);
 }
 
 .panelEmpty {
