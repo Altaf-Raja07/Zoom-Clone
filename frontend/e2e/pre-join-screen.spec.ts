@@ -19,112 +19,20 @@
  * behind — and only a real browser can be put into them.
  */
 
-import { Browser, BrowserContext, Page, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
-/**
- * A host with a Meeting, and its Invite Link.
- *
- * Created over the real API so the test is not asserting against a Meeting the
- * application could not actually make. The cookie is carried across from the
- * dashboard, which is what makes this browser the Host rather than a guest.
- */
-async function hostContextWithMeeting(
-  browser: Browser,
-  contextOptions?: Parameters<Browser["newContext"]>[0],
-): Promise<{ context: BrowserContext; page: Page; inviteLink: string }> {
-  const context = await browser.newContext(contextOptions);
-  const page = await context.newPage();
-  await page.goto("/");
-  await page.getByRole("button", { name: "New Meeting" }).click();
-  await expect(page).toHaveURL(/\/prejoin\/[0-9a-f-]{36}$/);
-
-  // The Invite Link is read from a second tab in the same context, so the tab
-  // under test stays where it is rather than being navigated away to fetch a
-  // string. Same cookie, so it is the same Host either way.
-  const reader = await context.newPage();
-  const meetingUuid = page.url().split("/prejoin/")[1] ?? "";
-  await reader.goto(`/room/${meetingUuid}`);
-  await expect(reader.getByTestId("invite-path")).toBeVisible();
-  const inviteLink = (await reader.getByTestId("invite-path").textContent()) ?? "";
-  await reader.close();
-
-  return { context, page, inviteLink };
-}
-
-/** The Meeting's internal id, read off whichever pre-join or room URL is showing. */
-async function meetingUuidFrom(page: Page): Promise<string> {
-  const url = page.url();
-  return url.split("/prejoin/")[1]?.split("/room/")[0] ?? (url.split("/room/")[1] ?? "");
-}
-
-/**
- * From an Invite Link to the pre-join screen, named.
- *
- * Two steps, because there are two: the join screen resolves *which* Meeting and
- * the pre-join screen is where the name is confirmed, beside a preview. A test
- * that filled a name on the join screen would be testing a field that is
- * deliberately not there any more.
- */
-async function joinAsGuest(
-  browser: Browser,
-  inviteLink: string,
-  name: string,
-  contextOptions?: Parameters<Browser["newContext"]>[0],
-) {
-  const guest = await browser.newContext(contextOptions);
-  const page = await guest.newPage();
-  await page.goto(inviteLink);
-  await page.getByTestId("join-button").click();
-  await expect(page).toHaveURL(/\/prejoin\//);
-  await page.getByTestId("display-name").fill(name);
-  return { guest, page };
-}
-
-/**
- * Wait for the browser to have answered about the devices.
- *
- * The toggles render as *on* until it does, because that is the state a person is
- * in who has not been asked. A test that reads one straight after navigation is
- * reading a decision that is about to be revised, and on a machine with no camera
- * it will be wrong about the meeting while being right about the DOM.
- */
-async function waitForDevices(page: Page) {
-  await expect(page.locator("main[data-devices]")).toHaveAttribute(
-    "data-devices",
-    "settled",
-  );
-}
-
-/**
- * Put a device toggle into a known state, clicking until it is there.
- *
- * Not `click()` and assume. On a machine with no camera the toggle *starts off* —
- * pre-join sets it off on arrival, because the button would otherwise claim video
- * is on while nothing is being sent — so a bare click turns it **on**. A test that
- * clicks and then asserts "off" passes on a machine with a camera and fails
- * without one, which is the same "only works on my laptop" bug this ticket is
- * about, one level up.
- *
- * Clicking at most twice means a test that has already put it where it wants does
- * no clicking at all, so this is also a no-op in the camera project.
- */
-async function setToggle(page: Page, testId: string, wantPressed: boolean) {
-  await waitForDevices(page);
-  const toggle = page.getByTestId(testId);
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    if ((await toggle.getAttribute("aria-pressed")) === String(wantPressed)) return;
-    await toggle.click();
-  }
-  expect(await toggle.getAttribute("aria-pressed")).toBe(String(wantPressed));
-}
+import {
+  guestOnPreJoin,
+  hostOnPreJoin,
+  isPressed,
+  refuseDevice,
+  setToggle,
+  waitForDevices,
+} from "./prejoin-helpers";
 
 test.describe("the pre-join to room handoff", () => {
   test("the room receives exactly what pre-join recorded", async ({ browser }) => {
-    const { context, page } = await hostContextWithMeeting(browser);
-    await expect(page).toHaveURL(/\/prejoin\//);
-
-    const meetingUuid = page.url().split("/prejoin/")[1] ?? "";
-    expect(meetingUuid).toMatch(/^[0-9a-f-]{36}$/);
+    const { context, page, meetingUuid } = await hostOnPreJoin(browser);
 
     await page.getByTestId("display-name").fill("Tomas");
     await setToggle(page, "toggle-camera", false);
@@ -142,7 +50,7 @@ test.describe("the pre-join to room handoff", () => {
   test("the entry is consumed, so a reload does not re-apply it", async ({
     browser,
   }) => {
-    const { context, page } = await hostContextWithMeeting(browser);
+    const { context, page } = await hostOnPreJoin(browser);
     await setToggle(page, "toggle-microphone", false);
     await page.getByTestId("join-button").click();
     await expect(page).toHaveURL(/\/room\//);
@@ -169,7 +77,7 @@ test.describe("the pre-join to room handoff", () => {
   test("a second meeting in the same tab does not inherit the first one's choices", async ({
     browser,
   }) => {
-    const { context, page } = await hostContextWithMeeting(browser);
+    const { context, page } = await hostOnPreJoin(browser);
     await setToggle(page, "toggle-camera", false);
     await setToggle(page, "toggle-microphone", false);
     await page.getByTestId("join-button").click();
@@ -182,16 +90,17 @@ test.describe("the pre-join to room handoff", () => {
     await page.getByRole("button", { name: "New Meeting" }).click();
     await expect(page).toHaveURL(/\/prejoin\//);
 
-    // Read what pre-join *chose* this time rather than assuming a default. On a
+    // Read what pre-join *chose* this time, for each device **on its own**
+    // rather than assuming a default. Two reasons, and they are different: on a
     // machine with no camera the default is already "off", which would make the
-    // assertion below pass whether or not the first meeting's choices leaked —
-    // and the leak is the whole thing being tested. So the read waits for the
-    // devices to have been answered, or it reads the pre-question default and
-    // calls it a choice.
+    // assertion pass whether or not the first meeting's choices leaked — and the
+    // leak is the whole thing being tested. And the microphone starts off for a
+    // reason of its own, so deriving its expectation from the *camera* would fail
+    // on a machine with a camera and no microphone, where pre-join is right and
+    // the test is not.
     await waitForDevices(page);
-    const cameraStartsOn =
-      (await page.getByTestId("toggle-camera").getAttribute("aria-pressed")) ===
-      "true";
+    const cameraStartsOn = await isPressed(page, "toggle-camera");
+    const microphoneStartsOn = await isPressed(page, "toggle-microphone");
 
     await page.getByTestId("join-button").click();
     await expect(page).toHaveURL(/\/room\//);
@@ -200,7 +109,7 @@ test.describe("the pre-join to room handoff", () => {
       cameraStartsOn ? "On" : "Off",
     );
     await expect(page.getByTestId("room-microphone-state")).toHaveText(
-      cameraStartsOn ? "On" : "Off",
+      microphoneStartsOn ? "On" : "Off",
     );
 
     await context.close();
@@ -209,8 +118,7 @@ test.describe("the pre-join to room handoff", () => {
   test("a value pre-join did not write opens the room on its defaults", async ({
     browser,
   }) => {
-    const { context, page } = await hostContextWithMeeting(browser);
-    const meetingUuid = await meetingUuidFrom(page);
+    const { context, page, meetingUuid } = await hostOnPreJoin(browser);
 
     // Each of these is the kind of thing a person, another tab, or an older
     // version of this app can leave behind. A room that trusted any of them would
@@ -220,10 +128,16 @@ test.describe("the pre-join to room handoff", () => {
       "not json",
       "42",
       "null",
-      '["Priya", true, true]',
+      "[true, true]",
+      // A name in the entry is no longer a field we write, and a stored one is
+      // not a reason to reject a value whose two booleans are sound.
       '{"displayName":"Priya","microphoneOn":true}',
-      '{"displayName":"P","microphoneOn":"yes","cameraOn":true}',
-      '{"displayName":7,"microphoneOn":true,"cameraOn":true}',
+      // The two that must be rejected, because a string is truthy where a boolean
+      // was expected — a meeting that opens with somebody muted, with no error
+      // anywhere to trace it to.
+      '{"microphoneOn":"yes","cameraOn":true}',
+      '{"microphoneOn":true,"cameraOn":1}',
+      '{"microphoneOn":true}',
       "{}",
     ]) {
       await page.evaluate(
@@ -239,66 +153,66 @@ test.describe("the pre-join to room handoff", () => {
     await context.close();
   });
 
-  test("a copied invite link opened in a separate tab reaches the room", async ({
+  test("a copied invite link carries nothing of the host's into the guest", async ({
     browser,
   }) => {
-    const host = await hostContextWithMeeting(browser);
+    const host = await hostOnPreJoin(browser, true);
 
-    // The host deliberately turns its camera **on**, whatever this machine's
-    // hardware said, so that the host and the guest end up in the room with
-    // opposite camera states. Without that, a machine with no webcam has both of
-    // them off and the test cannot tell "the guest's own choice arrived" from
-    // "both were off for the same boring reason".
-    await setToggle(host.page, "toggle-camera", true);
-
-    // A different context entirely, so nothing in the host's `sessionStorage` can
-    // be what made this work.
-    const { guest, page: guestPage } = await joinAsGuest(
-      browser,
-      host.inviteLink,
-      "Priya",
-    );
-
-    // The guest goes through their own pre-join flow, as they must: the stored
-    // choices are per-tab *and* per-meeting, so a shared link cannot carry them.
-    await expect(guestPage.getByTestId("display-name")).toHaveValue("Priya");
-    await setToggle(guestPage, "toggle-camera", false);
-
-    // The microphone was left alone, so the room's microphone state is whatever
-    // this machine's own answer was — read rather than assumed, because on a
-    // machine with no microphone pre-join starts it off, and asserting "On" there
-    // would be quietly asserting a webcam.
-    await waitForDevices(guestPage);
-    const microphoneStartsOn =
-      (await guestPage
-        .getByTestId("toggle-microphone")
-        .getAttribute("aria-pressed")) === "true";
-
-    // The host enters its own room, so there is a host state to compare against
-    // afterwards rather than a default to assert.
+    // The host enters first, so its own state is on the record and its stored
+    // entry has been consumed — the arrangement that makes a leak possible.
     await host.page.getByTestId("join-button").click();
     await expect(host.page).toHaveURL(/\/room\//);
-    await expect(host.page.getByTestId("room-camera-state")).toHaveText("On");
+    const hostCamera = await host.page
+      .getByTestId("room-camera-state")
+      .textContent();
     const hostMicrophone = await host.page
       .getByTestId("room-microphone-state")
       .textContent();
 
-    await guestPage.getByTestId("join-button").click();
+    // A different context entirely, so nothing in the host's `sessionStorage` can
+    // be what made this work.
+    const { guest, page: guestPage } = await guestOnPreJoin(
+      browser,
+      host.inviteLink ?? "",
+      "Priya",
+    );
 
+    // The link is a `/join` path and carries nothing. This is the assertion that
+    // makes the rest mean anything: a device preference in a link would be a
+    // stranger's camera settings arriving in somebody else's browser, and it is
+    // asserted before the guest has pressed anything, so nothing they did can be
+    // mistaken for it.
+    expect(
+      await guestPage.evaluate(() =>
+        Object.keys(window.sessionStorage).filter((key) =>
+          key.startsWith("meetly:prejoin:"),
+        ),
+      ),
+    ).toEqual([]);
+
+    // The guest's own name, and their own devices — whatever *this* machine's
+    // answer was, read rather than assumed. On a machine with no webcam that is
+    // "off", and asserting anything else would be asserting hardware.
+    await expect(guestPage.getByTestId("display-name")).toHaveValue("Priya");
+    const guestCamera = await isPressed(guestPage, "toggle-camera");
+    const guestMicrophone = await isPressed(guestPage, "toggle-microphone");
+
+    await guestPage.getByTestId("join-button").click();
     await expect(guestPage).toHaveURL(/\/room\/[0-9a-f-]{36}$/);
     await expect(guestPage.getByTestId("your-name")).toHaveText("Priya");
-    // The check that the guest's choices are theirs: the camera is off because
-    // the guest turned it off, while the host who is in the same Meeting and sent
-    // the link is broadcasting.
-    await expect(guestPage.getByTestId("room-camera-state")).toHaveText("Off");
+    await expect(guestPage.getByTestId("room-camera-state")).toHaveText(
+      guestCamera ? "On" : "Off",
+    );
     await expect(guestPage.getByTestId("room-microphone-state")).toHaveText(
-      microphoneStartsOn ? "On" : "Off",
+      guestMicrophone ? "On" : "Off",
     );
 
     // And the host is untouched by anything the guest did. Compared rather than
     // reloaded: the stored entry is consumed on read, so a reload would reset the
     // host to the room's defaults and this would be asserting nothing.
-    await expect(host.page.getByTestId("room-camera-state")).toHaveText("On");
+    await expect(host.page.getByTestId("room-camera-state")).toHaveText(
+      hostCamera ?? "",
+    );
     await expect(host.page.getByTestId("room-microphone-state")).toHaveText(
       hostMicrophone ?? "",
     );
@@ -310,7 +224,7 @@ test.describe("the pre-join to room handoff", () => {
   test("storage being unavailable does not stop anybody joining", async ({
     browser,
   }) => {
-    const { context, page } = await hostContextWithMeeting(browser);
+    const { context, page } = await hostOnPreJoin(browser);
 
     // Private browsing and blocked third-party contexts both produce a
     // `sessionStorage` that throws. The person loses their device preferences for
@@ -341,40 +255,25 @@ test.describe("the pre-join to room handoff", () => {
 });
 
 /**
- * A camera that the browser *refuses*, rather than one that is absent.
+ * A camera the browser *refuses*, rather than one that is absent.
  *
  * The two are different sentences to a person — "you clicked Block" and "this
  * laptop has no webcam" lead to opposite actions — and the ticket asks for both.
- * A headless browser cannot produce a refusal on demand: with no device present
- * the answer is always `NotFoundError`, and the fake-UI flag that would grant a
- * permission is also what makes it grantable to refuse. So the refusal is
- * scripted here, by rejecting with the same `DOMException` a browser rejecting
- * produces, and the *missing device* case is left genuine in the describe below.
- *
- * Nothing else is stubbed. The page is real, the API is real, the storage is
- * real, and the only thing being faked is the one answer under test.
+ * The refusal has to be produced, because a headless browser cannot make one on
+ * demand; the *missing device* case below is left genuine. `refuseDevice` is the
+ * one thing stubbed: the page, the API and the storage are all real.
  */
-async function refuseVideo(page: Page) {
-  await page.addInitScript(() => {
-    const real = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-    navigator.mediaDevices.getUserMedia = (constraints: MediaStreamConstraints) => {
-      if (constraints.video) {
-        return Promise.reject(
-          new DOMException("Permission denied", "NotAllowedError"),
-        );
-      }
-      return real(constraints);
-    };
-  });
-}
-
 test.describe("with the camera permission denied", () => {
   test("says what happened, offers a way forward, and still reaches the room", async ({
     browser,
   }) => {
-    const host = await hostContextWithMeeting(browser);
-    const { guest, page } = await joinAsGuest(browser, host.inviteLink, "Priya");
-    await refuseVideo(page);
+    const host = await hostOnPreJoin(browser, true);
+    const { guest, page } = await guestOnPreJoin(
+      browser,
+      host.inviteLink ?? "",
+      "Priya",
+    );
+    await refuseDevice(page, "video");
     await page.reload();
     await expect(page).toHaveURL(/\/prejoin\//);
     await waitForDevices(page);
@@ -412,9 +311,13 @@ test.describe("with the camera permission denied", () => {
   test("a refused camera does not stop the microphone being used", async ({
     browser,
   }) => {
-    const host = await hostContextWithMeeting(browser);
-    const { guest, page } = await joinAsGuest(browser, host.inviteLink, "Priya");
-    await refuseVideo(page);
+    const host = await hostOnPreJoin(browser, true);
+    const { guest, page } = await guestOnPreJoin(
+      browser,
+      host.inviteLink ?? "",
+      "Priya",
+    );
+    await refuseDevice(page, "video");
     await page.reload();
     await waitForDevices(page);
 
@@ -425,10 +328,7 @@ test.describe("with the camera permission denied", () => {
     // the microphone's state is whatever *its own* answer was — compared rather
     // than assumed, because on a machine with no microphone "off" is the correct
     // answer and would make a blanket mute indistinguishable from a correct one.
-    const microphoneStartsOn =
-      (await page
-        .getByTestId("toggle-microphone")
-        .getAttribute("aria-pressed")) === "true";
+    const microphoneStartsOn = await isPressed(page, "toggle-microphone");
 
     // A control the screen has decided for the person is a control they cannot
     // change back, and the camera's failure is no reason to take one away.
@@ -446,50 +346,43 @@ test.describe("with the camera permission denied", () => {
   });
 });
 
-test.describe("with no camera device at all", () => {
-  test("explains it, and reaches the room with video off", async ({ browser }) => {
-    const host = await hostContextWithMeeting(browser);
-    // No permissions are granted and no fake device is present, so whatever the
-    // browser says here is genuinely what a machine without a webcam says. That
-    // is the point of running this half in the plain project.
-    const { guest, page } = await joinAsGuest(browser, host.inviteLink, "Lena", {
-      permissions: [],
-    });
-
+test.describe("on whatever machine this happens to be", () => {
+  test("the screen resolves and entry is possible, with or without a camera", async ({
+    browser,
+  }) => {
+    const { context, page } = await hostOnPreJoin(browser);
     await waitForDevices(page);
 
-    // Not stuck waiting: the screen has resolved into one of its states. A
-    // pre-join screen that leaves a spinner here is the failure the ticket names.
-    const hasPreview = await page.getByTestId("camera-preview").isVisible();
-    if (!hasPreview) {
-      // A notice, where there is a notice, has to name the cause and the way
-      // forward — a "camera error" string would be a black tile with a code on
-      // it.
-      const notice = page.getByTestId("camera-notice");
-      await expect(notice).toBeVisible();
-      await expect(notice).toContainText(/camera/i);
-      await expect(notice).toContainText(/join/i);
+    // Deliberately not a branch. The *specific* answers are asserted in
+    // `pre-join-camera.spec.ts`, where a device can be removed and a working one
+    // kept, so they are the same on every machine. What is left here is the one
+    // claim that has to hold on whatever hardware is present, and this project has
+    // no fake device at all — so the absence is genuine rather than staged.
+    await expect(
+      page.getByTestId("camera-preview").or(page.getByTestId("camera-fallback")),
+    ).toBeVisible();
 
-      // And no retry is offered for a device that is not there. A button that can
-      // only fail is a promise not kept.
-      await expect(page.getByTestId("retry-devices")).toHaveCount(0);
+    // A black rectangle with nothing in it and no explanation is the failure the
+    // ticket names, so a fallback always has to say why it is standing in.
+    if (await page.getByTestId("camera-fallback").isVisible()) {
+      await expect(page.getByTestId("camera-fallback")).toContainText(/camera/i);
     }
 
-    // Entering stays available whatever the machine has. Asserted as *enabled*
-    // because a pre-join screen that disables itself on a device failure has
-    // failed the ticket's central requirement whatever its label says.
+    // Entry is never taken away over a device, whatever the device said. Read the
+    // camera's own answer *before* joining, because after joining this is the
+    // room and the toggle is gone.
+    const cameraWasOn = await isPressed(page, "toggle-camera");
     await expect(page.getByTestId("join-button")).toBeEnabled();
     await page.getByTestId("join-button").click();
     await expect(page).toHaveURL(/\/room\/[0-9a-f-]{36}$/);
 
-    // Video is off rather than on, because a missing camera is not something the
-    // toggle is allowed to claim. The button saying "On" while nothing is sent is
-    // the state the ticket calls out.
+    // And the room is told the truth about the camera: exactly the state the
+    // toggle on screen was in, no more. A button reading "On" while nothing is
+    // sent is the state the ticket calls out.
     await expect(page.getByTestId("room-camera-state")).toHaveText(
-      hasPreview ? "On" : "Off",
+      cameraWasOn ? "On" : "Off",
     );
 
-    await guest.close();
-    await host.context.close();
+    await context.close();
   });
 });

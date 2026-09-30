@@ -26,10 +26,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import {
-  ApiError,
   Meeting,
   explainApiError,
   getMeetingByJoinCode,

@@ -1,13 +1,16 @@
 /**
- * What a person chose on the pre-join screen, handed to the room.
+ * The device choices a person made on the pre-join screen, handed to the room.
  *
- * Pre-join and the room are two routes, so something has to carry a Display Name
- * and two device booleans across. `sessionStorage` does it, keyed by Meeting id,
- * and the reasoning is worth writing down because the alternatives were worse:
+ * Pre-join and the room are two routes, so something has to carry two device
+ * booleans across. `sessionStorage` does it, keyed by Meeting id, and the
+ * reasoning is worth writing down because the alternatives were worse:
  *
- * - **Not the URL.** `/room/<id>?name=Altaf&mic=0` puts a person's name in
+ * - **Not the URL.** `/room/<id>?mic=0&cam=1` puts a person's device state in
  *   their address bar, in their history, and in anything they paste. The Invite
  *   Link is a `/join` path precisely so that no such data is ever in it.
+ * - **Not the Display Name's route.** The name does not come this way at all: it
+ *   is written through the API on the way in, so it lives on the `User` and is
+ *   already the truth by the time the room asks. See `PreJoinChoices`.
  * - **Not `localStorage`.** These are decisions about *this* visit — "turn my
  *   video off for this meeting" — and a persistent store would carry them into
  *   the next one. `sessionStorage` is scoped to the tab, which is also the right
@@ -30,9 +33,19 @@
 /** Where the choices are written, and what the room reads. */
 export const PREJOIN_KEY_PREFIX = "meetly:prejoin:";
 
-/** What a person chose before entering. */
+/**
+ * What a person chose before entering.
+ *
+ * **The Display Name is deliberately not one of these.** The two have different
+ * lifetimes: a name is a fact about the `User` and is written through the API
+ * before the person enters, so it is on the session and every other participant
+ * already agrees about it; the two device flags are a decision about *this visit
+ * in this tab* and exist nowhere else. Carrying the name here as well would be a
+ * second copy of a fact that is already stored once, and two copies of a name
+ * are two chances to disagree — the room would have to pick a winner, and either
+ * choice can be wrong.
+ */
 export type PreJoinChoices = {
-  displayName: string;
   microphoneOn: boolean;
   cameraOn: boolean;
 };
@@ -46,7 +59,6 @@ export type PreJoinChoices = {
  * would have been.
  */
 export const DEFAULT_CHOICES: PreJoinChoices = {
-  displayName: "",
   microphoneOn: true,
   cameraOn: true,
 };
@@ -56,24 +68,23 @@ function keyFor(meetingUuid: string): string {
 }
 
 /**
- * Remember the choices for this Meeting.
+ * Remember the device choices for this Meeting.
  *
- * Returns whether they were stored, and the caller is expected to *carry on
- * either way* — a storage failure costs the person their device preferences for
- * one visit, and the alternative is refusing to let them into a meeting they are
- * standing in front of.
+ * Returns nothing, and swallows a storage failure entirely. That is the whole
+ * contract: a failure costs the person their device preferences for one visit,
+ * and the room falls back to its own defaults, so there is no decision left for
+ * the caller to make and no error worth rendering. Returning a boolean nobody
+ * reads would only invite somebody to act on it.
  */
 export function savePreJoinChoices(
   meetingUuid: string,
   choices: PreJoinChoices,
-): boolean {
+): void {
   try {
     window.sessionStorage.setItem(keyFor(meetingUuid), JSON.stringify(choices));
-    return true;
   } catch {
     // Private browsing, a blocked third-party context, or a full quota. None of
     // those is a reason to stop somebody joining.
-    return false;
   }
 }
 
@@ -117,10 +128,9 @@ export function takePreJoinChoices(meetingUuid: string): PreJoinChoices | null {
 function validated(candidate: unknown): PreJoinChoices | null {
   if (typeof candidate !== "object" || candidate === null) return null;
 
-  const { displayName, microphoneOn, cameraOn } = candidate as Record<string, unknown>;
-  if (typeof displayName !== "string") return null;
+  const { microphoneOn, cameraOn } = candidate as Record<string, unknown>;
   if (typeof microphoneOn !== "boolean") return null;
   if (typeof cameraOn !== "boolean") return null;
 
-  return { displayName, microphoneOn, cameraOn };
+  return { microphoneOn, cameraOn };
 }

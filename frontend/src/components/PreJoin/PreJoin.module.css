@@ -200,7 +200,7 @@
 }
 
 .toggleState {
-  opacity: 0.72;
+  opacity: var(--opacity-secondary);
   font-weight: var(--font-weight-medium);
 }
 

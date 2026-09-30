@@ -20,7 +20,7 @@
  */
 
 /** What the browser told us when it would not give us a device. */
-export type CameraProblem =
+export type DeviceProblem =
   /** The person said no, or the page is not allowed to ask. */
   | "denied"
   /** There is no such device on this machine. */
@@ -31,18 +31,6 @@ export type CameraProblem =
   | "unsupported";
 
 /**
- * What the pre-join screen needs to know about the devices.
- *
- * A stream *and* the failure that replaced it, never both: `problem: null` with a
- * stream is the working case, and a `problem` with a stream would be a stream the
- * caller has to remember to ignore.
- */
-export type LocalMedia = {
-  stream: MediaStream | null;
-  problem: CameraProblem | null;
-};
-
-/**
  * The sentence for each failure, written for the person rather than the console.
  *
  * Two of these must say what to *do*, not only what happened. "NotAllowedError"
@@ -50,7 +38,7 @@ export type LocalMedia = {
  * browser is blocking the camera for this site" tells them there is a permission
  * to grant, and that joining is still on the table either way.
  */
-export const CAMERA_PROBLEM_TEXT: Record<CameraProblem, string> = {
+export const CAMERA_PROBLEM_TEXT: Record<DeviceProblem, string> = {
   denied:
     "Your browser is blocking the camera for this site. You can allow it in your browser's site settings, or join without video.",
   missing:
@@ -61,7 +49,7 @@ export const CAMERA_PROBLEM_TEXT: Record<CameraProblem, string> = {
 };
 
 /** The same, for the microphone, which fails independently of the camera. */
-export const MICROPHONE_PROBLEM_TEXT: Record<CameraProblem, string> = {
+export const MICROPHONE_PROBLEM_TEXT: Record<DeviceProblem, string> = {
   denied:
     "Your browser is blocking the microphone for this site. You can allow it in your browser's site settings, or join muted.",
   missing: "No microphone was found on this device. You can join and be seen, but not heard.",
@@ -84,9 +72,9 @@ export const MICROPHONE_PROBLEM_TEXT: Record<CameraProblem, string> = {
  */
 export async function getLocalMedia(): Promise<{
   video: MediaStream | null;
-  cameraProblem: CameraProblem | null;
+  cameraProblem: DeviceProblem | null;
   audio: MediaStream | null;
-  microphoneProblem: CameraProblem | null;
+  microphoneProblem: DeviceProblem | null;
 }> {
   const [video, cameraProblem] = await requestDevice("video");
   const [audio, microphoneProblem] = await requestDevice("audio");
@@ -104,7 +92,7 @@ export async function getLocalMedia(): Promise<{
  */
 async function requestDevice(
   kind: "video" | "audio",
-): Promise<[MediaStream | null, CameraProblem | null]> {
+): Promise<[MediaStream | null, DeviceProblem | null]> {
   if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
     // Not an error worth rendering as one: there is no camera on this platform at
     // all, which is the same situation as a machine without a webcam.
@@ -126,7 +114,7 @@ async function requestDevice(
  * the same fact under two names — and `name` is the one property all of them have
  * and all of them document.
  */
-function classify(cause: unknown): CameraProblem {
+function classify(cause: unknown): DeviceProblem {
   const name = (cause as { name?: string } | null)?.name;
 
   switch (name) {

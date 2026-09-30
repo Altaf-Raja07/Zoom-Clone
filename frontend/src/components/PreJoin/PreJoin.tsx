@@ -42,7 +42,7 @@ import { UNTITLED } from "@/lib/meetings";
 import {
   CAMERA_PROBLEM_TEXT,
   MICROPHONE_PROBLEM_TEXT,
-  CameraProblem,
+  DeviceProblem,
   getLocalMedia,
   stopStream,
 } from "@/lib/media";
@@ -70,12 +70,18 @@ const ENTER_FAILED = "We could not enter this meeting. Please try again in a mom
  * because a copy change to the wording must not silently remove the retry — the
  * decision is about the failure, not about the words describing it.
  */
-const WORTH_RETRYING = new Set<CameraProblem>(["denied", "busy"]);
+const WORTH_RETRYING = new Set<DeviceProblem>(["denied", "busy"]);
 
 export function PreJoin({ meetingUuid }: Props) {
   const router = useRouter();
   const [meeting, setMeeting] = useState<Meeting | null>(null);
+  // A Meeting that could not be read, and a name that could not be stored, are
+  // kept apart. They are different failures with different recoveries: the first
+  // means there is nothing here to enter, the second means everything is here
+  // except one field, and replacing the whole form with a sentence about a
+  // rejected name would throw away a camera the person has already arranged.
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [enterError, setEnterError] = useState<string | null>(null);
 
   const [displayName, setDisplayName] = useState("");
   const [nameLoading, setNameLoading] = useState(true);
@@ -84,8 +90,8 @@ export function PreJoin({ meetingUuid }: Props) {
   // Held as the problem *kind* rather than as the rendered sentence: the words
   // are derived where they are shown, and the retry decision below is about the
   // failure rather than about how it is described.
-  const [cameraProblem, setCameraProblem] = useState<CameraProblem | null>(null);
-  const [microphoneProblem, setMicrophoneProblem] = useState<CameraProblem | null>(
+  const [cameraProblem, setCameraProblem] = useState<DeviceProblem | null>(null);
+  const [microphoneProblem, setMicrophoneProblem] = useState<DeviceProblem | null>(
     null,
   );
   const [entering, setEntering] = useState(false);
@@ -98,11 +104,28 @@ export function PreJoin({ meetingUuid }: Props) {
   // right about the DOM and wrong about the meeting.
   const [devicesPending, setDevicesPending] = useState(true);
 
-  const previewRef = useRef<HTMLVideoElement | null>(null);
-  // Held in a ref as well as state because the stream is a DOM object rather than
-  // something to re-render, and because the cleanup below needs it without
-  // depending on a render having happened since.
-  const streamRef = useRef<MediaStream | null>(null);
+  // The camera stream, in state rather than a ref, and the reason is that two
+  // things have to happen when it arrives and they happen at different times: it
+  // has to be attached to the preview element, and it has to be stopped when this
+  // screen goes away. An effect keyed on it does both, and — the case the ticket
+  // forbids — re-runs when the *element* changes too, so turning the camera off
+  // and on again re-attaches rather than leaving a mounted `<video>` with nothing
+  // in it and the camera light on.
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  // The preview element as a **callback ref**, not a `useRef` object. The preview
+  // is unmounted whenever the camera is off or has failed, so an effect with no
+  // dependency on the element would never hear about the new one, and there would
+  // be a window in which a video tag is on screen with nothing in it.
+  const [previewElement, setPreviewElement] = useState<HTMLVideoElement | null>(
+    null,
+  );
+  // Counts the device requests in flight, so a retry that arrives after a second
+  // retry — or after the person has left — is recognised as stale and its stream
+  // handed straight back instead of overwriting the live one. Without it, two
+  // clicks on "Try again" leak a camera and the person is left with a preview of a
+  // stream nobody is holding. A ref because it is a counter read and written
+  // outside rendering, and never drawn.
+  const requestRef = useRef(0);
 
   // The Meeting, for the title and for knowing whether this is even a Meeting
   // worth entering. A Meeting that has ended refuses here rather than after the
@@ -146,6 +169,53 @@ export function PreJoin({ meetingUuid }: Props) {
   }, []);
 
   /**
+   * Ask for the devices, and put the answer on the screen.
+   *
+   * One function, called on arrival and by every retry, because the two places
+   * used to be a copy each and only the copy was careful: the effect version
+   * knew how to give a stream back if it arrived after the person had left, and
+   * the retry version did not — so leaving during a retry left the camera light
+   * on for a screen nobody was watching. One code path has no such gap.
+   */
+  async function refreshDevices() {
+    const request = (requestRef.current += 1);
+    setDevicesPending(true);
+
+    const { video, cameraProblem, audio, microphoneProblem } = await getLocalMedia();
+
+    // The microphone is asked for and then released. Nothing here plays it —
+    // ADR-0001 has remote audio simulated and there is no peer connection to feed
+    // — so a live track would be a recording indicator on a device that is
+    // capturing nothing. The permission it asked for is what the screen needs to
+    // know; the stream is not.
+    stopStream(audio);
+
+    // Superseded by a later request, or the person has left. Either way this
+    // stream was never going to be looked at, and holding it is the one outcome
+    // the whole file treats as worst.
+    if (request !== requestRef.current) {
+      stopStream(video);
+      return;
+    }
+
+    // Setting the stream rather than assigning it to a ref: the effect below owns
+    // the camera's lifetime, and it can only do that for something React knows
+    // changed. The previous stream is stopped by that effect's cleanup, so a retry
+    // on a machine whose camera was freed and re-taken does not leave two tracks
+    // running on one device.
+    setStream(video);
+
+    // A failed device means the matching toggle is *off*, because the button
+    // would otherwise claim video is on while nothing is being sent — and the
+    // room would be told the same lie.
+    setCameraProblem(cameraProblem);
+    setMicrophoneProblem(microphoneProblem);
+    setCameraOn(!cameraProblem);
+    setMicrophoneOn(!microphoneProblem);
+    setDevicesPending(false);
+  }
+
+  /**
    * The devices, once, on arrival.
    *
    * Not re-run when a toggle changes: turning the camera *off* here is a
@@ -154,47 +224,40 @@ export function PreJoin({ meetingUuid }: Props) {
    * re-prompt for a permission the person has already answered.
    */
   useEffect(() => {
-    let cancelled = false;
-
-    getLocalMedia().then(({ video, cameraProblem, audio, microphoneProblem }) => {
-      if (cancelled) {
-        // Arrived after leaving. Give the devices straight back rather than
-        // holding a camera open on a screen nobody is watching.
-        stopStream(video);
-        stopStream(audio);
-        return;
-      }
-
-      streamRef.current = video;
-      if (video && previewRef.current) {
-        previewRef.current.srcObject = video;
-        // `muted` and `playsInline` so the browser does not treat an unmuted
-        // autoplay as noise the user did not ask for, and so iOS does not take
-        // the video fullscreen the moment it plays.
-        void previewRef.current.play().catch(() => undefined);
-      }
-      // The microphone is asked for and then released. Nothing here plays it —
-      // ADR-0001 has remote audio simulated and there is no peer connection to
-      // feed — so a live track would be a recording indicator on a device that
-      // is capturing nothing. The permission it asked for is what the screen
-      // needs to know; the stream is not.
-      stopStream(audio);
-
-      // A missing device means the matching toggle starts *off*, because the
-      // button would otherwise claim video is on while nothing is being sent.
-      setCameraProblem(cameraProblem);
-      setMicrophoneProblem(microphoneProblem);
-      if (cameraProblem) setCameraOn(false);
-      if (microphoneProblem) setMicrophoneOn(false);
-      setDevicesPending(false);
-    });
+    void refreshDevices();
 
     return () => {
-      cancelled = true;
-      stopStream(streamRef.current);
-      streamRef.current = null;
+      // Invalidate anything in flight. The stream already held is stopped by the
+      // effect below; this is only about the one that has not arrived yet.
+      requestRef.current += 1;
     };
   }, []);
+
+  /**
+   * The camera's whole lifetime, in one effect.
+   *
+   * Two jobs, deliberately in one place. **Stopping it** is the one this file
+   * treats as worst: a camera left running on a screen that is no longer on
+   * screen is a light that stays on after the person has gone, and nothing else
+   * here would remember to stop it. **Attaching it** is the one the ticket
+   * forbids failing: the preview is unmounted whenever the camera is off, so the
+   * dependency on the element is what re-attaches the stream when it comes back
+   * rather than leaving a video tag with nothing in it.
+   */
+  useEffect(() => {
+    if (!stream) return;
+    return () => stopStream(stream);
+  }, [stream]);
+
+  useEffect(() => {
+    if (!previewElement || !stream) return;
+    previewElement.srcObject = stream;
+    // `muted` and `playsInline` are attributes on the element for the same
+    // reasons; the `play()` is because a freshly mounted element does not start
+    // on its own in every browser, and a rejected promise here is a browser
+    // autoplay policy rather than anything the person did.
+    void previewElement.play().catch(() => undefined);
+  }, [previewElement, stream]);
 
   const nameIsUsable = displayName.trim().length > 0;
   const canEnter = nameIsUsable && !entering && meeting !== null;
@@ -203,16 +266,21 @@ export function PreJoin({ meetingUuid }: Props) {
     if (!canEnter || !meeting) return;
 
     setEntering(true);
+    setEnterError(null);
 
     // The name is stored before entering, so a failure part-way through leaves it
     // saved — and the room reads the name from the session rather than carrying
     // a second copy in memory that could disagree with what everyone else sees.
-    let storedName: string;
+    //
+    // A failure here is reported *in place*, with the form still on screen. The
+    // Meeting loaded; it is one field the API would not take, and replacing a
+    // camera the person has already arranged with a sentence would be the most
+    // destructive way to tell them so.
     try {
-      storedName = (await updateDisplayName(displayName)).display_name;
+      await updateDisplayName(displayName);
     } catch (cause: unknown) {
       setEntering(false);
-      setLoadError(
+      setEnterError(
         cause instanceof ApiError && cause.detail
           ? cause.detail
           : "We could not save your name. Please try again.",
@@ -221,14 +289,11 @@ export function PreJoin({ meetingUuid }: Props) {
     }
 
     // Device preferences cross to the room through storage rather than the URL,
-    // so nothing about this person ends up in a link they might paste. A storage
-    // failure is *not* an error: the room falls back to its own defaults and the
-    // person still joins.
-    savePreJoinChoices(meetingUuid, {
-      displayName: storedName,
-      microphoneOn,
-      cameraOn,
-    });
+    // so nothing about this person ends up in a link they might paste. The name
+    // is not here: it is on the `User` now, and a second copy would be a second
+    // chance to disagree. A storage failure is *not* an error: the room falls
+    // back to its own defaults and the person still joins.
+    savePreJoinChoices(meetingUuid, { microphoneOn, cameraOn });
 
     router.push(`/room/${meeting.id}`);
   }
@@ -277,7 +342,7 @@ export function PreJoin({ meetingUuid }: Props) {
         <div className={styles.stage}>
           {cameraOn && !cameraProblem ? (
             <video
-              ref={previewRef}
+              ref={setPreviewElement}
               className={styles.preview}
               data-testid="camera-preview"
               autoPlay
@@ -290,9 +355,9 @@ export function PreJoin({ meetingUuid }: Props) {
                 {initialsOf(displayName)}
               </span>
               <p className={styles.fallbackText}>
-                {cameraOn
-                  ? "Your camera is off."
-                  : "You will enter with your camera off."}
+                {cameraProblem
+                  ? "You will enter with your camera off."
+                  : "Your camera is off."}
               </p>
             </div>
           )}
@@ -305,7 +370,7 @@ export function PreJoin({ meetingUuid }: Props) {
               <button
                 type="button"
                 className={styles.retryButton}
-                onClick={() => void retryDevices()}
+                onClick={() => void refreshDevices()}
                 data-testid="retry-devices"
               >
                 Try again
@@ -329,13 +394,32 @@ export function PreJoin({ meetingUuid }: Props) {
             label="Microphone"
             testId="toggle-microphone"
             pressed={microphoneOn}
-            onChange={setMicrophoneOn}
+            onChange={(next) => {
+              // The same answer for a microphone that was never there: pressing
+              // "On" asks again rather than claiming to be sending audio.
+              if (next && microphoneProblem) {
+                void refreshDevices();
+                return;
+              }
+              setMicrophoneOn(next);
+            }}
           />
           <DeviceToggle
             label="Camera"
             testId="toggle-camera"
             pressed={cameraOn}
-            onChange={setCameraOn}
+            onChange={(next) => {
+              // Turning a *failed* camera on asks the browser again, rather than
+              // flipping the button to "On" while nothing is being sent and the
+              // room is about to be told the opposite. A person who has just
+              // unblocked the site in another tab gets their camera this way,
+              // without hunting for the retry link.
+              if (next && cameraProblem) {
+                void refreshDevices();
+                return;
+              }
+              setCameraOn(next);
+            }}
           />
         </div>
 
@@ -357,6 +441,15 @@ export function PreJoin({ meetingUuid }: Props) {
           being called something you did not choose.
         </p>
 
+        {/* Where the name is refused. Above the Join control and not instead of
+            it, so the person can fix the one field and press it again rather than
+            being told something went wrong and left with nothing to do. */}
+        {enterError ? (
+          <p role="alert" className={styles.error} data-testid="prejoin-enter-error">
+            {enterError}
+          </p>
+        ) : null}
+
         <button
           type="button"
           className={styles.joinButton}
@@ -369,28 +462,6 @@ export function PreJoin({ meetingUuid }: Props) {
       </main>
     </div>
   );
-
-  /** Ask again, for a person who blocked the camera and has now unblocked it. */
-  async function retryDevices() {
-    stopStream(streamRef.current);
-    // Back to pending for the same reason as on arrival: the toggles are about to
-    // be revised, and anything reading them mid-question is reading a decision
-    // that has not been made yet.
-    setDevicesPending(true);
-    const { video, cameraProblem, audio, microphoneProblem } = await getLocalMedia();
-    // Same as on arrival: the audio is released rather than held.
-    stopStream(audio);
-    streamRef.current = video;
-    if (video && previewRef.current) {
-      previewRef.current.srcObject = video;
-      void previewRef.current.play().catch(() => undefined);
-    }
-    setCameraProblem(cameraProblem);
-    setMicrophoneProblem(microphoneProblem);
-    setCameraOn(!cameraProblem);
-    setMicrophoneOn(!microphoneProblem);
-    setDevicesPending(false);
-  }
 }
 
 /**

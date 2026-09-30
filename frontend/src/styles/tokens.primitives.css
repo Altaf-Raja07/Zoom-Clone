@@ -101,6 +101,13 @@
      show a person a framing nobody else will ever see. */
   --ratio-camera-preview: 16 / 9;
 
+  /* Opacity. One value, for text that has to step back from its surroundings
+     *within* a coloured surface — a device toggle's own "On"/"Off" label. It is
+     opacity rather than a second text colour because the two toggles are on two
+     different backgrounds with two different foregrounds, and a colour that reads
+     as secondary on one is invisible on the other. */
+  --opacity-secondary: 0.72;
+
   /* Motion. */
   --duration-fast: 120ms;
   --duration-base: 200ms;
